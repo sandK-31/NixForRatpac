@@ -1,0 +1,16 @@
+# Nix build outputs (GC roots created by `nix build`)
+result
+result-*
+
+# direnv
+.direnv/
+.envrc.local
+
+# RAT run artifacts (rat writes these into the working directory)
+rat.*.log
+*.root
+
+# Editor / OS cruft
+.DS_Store
+*.swp
+compile_commands.json
