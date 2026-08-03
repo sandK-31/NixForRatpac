@@ -1,7 +1,7 @@
 # Initially written by Ethan W. Todd, https://github.com/ewtodd
 # Adapted by Sander Katz, https://github.com/sandK-31
 {
-  description = "Unified Geant4 + ROOT + RAT-PAC (Latest Main) environment";
+  description = "Unified Geant4 + ROOT + RAT-PAC development environment";
 
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
@@ -177,7 +177,7 @@
             export LD_LIBRARY_PATH="$RAT_LIB_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
             export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
-            echo "Environment Ready: RAT-PAC (Latest Main) + Geant4 + ROOT"
+            echo "Environment Ready: RAT-PAC 905b40d + Geant4 $(geant4-config --version) + ROOT $(root-config --version)"
           '';
         };
       }
