@@ -6,8 +6,17 @@
   inputs = {
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
     flake-utils.url = "github:numtide/flake-utils";
+    # Pinned to an explicit revision rather than the main branch, so
+    # `nix flake update` cannot move RAT-PAC underneath the postPatch
+    # workarounds. This is the exact commit this environment was built and
+    # tested against.
+    #
+    # Deliberately NOT on a 4.x release tag: those require Geant4 11.4
+    # (find_package(Geant4 11.4 REQUIRED)) and nixpkgs 25.11 ships 11.3.2, so
+    # they fail at CMake configure. Moving to 4.x means bumping nixpkgs to a
+    # channel with Geant4 11.4 and reworking the patches below.
     ratpac-src = {
-      url = "github:rat-pac/ratpac-two/main";
+      url = "github:rat-pac/ratpac-two/905b40d592bedd23736d159382fe9de6206a0b1b";
       flake = false;
     };
   };

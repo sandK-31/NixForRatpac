@@ -17,7 +17,7 @@ archaeology. Works on macOS (Apple Silicon and Intel) and Linux.
 
 | Component | Version (as pinned) |
 | --- | --- |
-| RAT-PAC 2 | `rat-pac/ratpac-two` @ `main` (pinned in `flake.lock`) |
+| RAT-PAC 2 | `rat-pac/ratpac-two` @ `905b40d` (2026-03-23) |
 | Geant4 | 11.3.2, built with Qt visualization enabled |
 | ROOT | 6.36.04 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
@@ -269,19 +269,41 @@ so everyone who checks out this repo gets a bit-for-bit identical environment.
 # See exactly what's pinned right now
 nix flake metadata
 
-# Update everything to the latest
+# Update nixpkgs / flake-utils to the latest
 nix flake update
-
-# Update only RAT-PAC, leaving nixpkgs/ROOT/Geant4 alone
-nix flake update ratpac-src
 ```
 
-⚠️ `ratpac-src` tracks the **`main` branch**, so `nix flake update` can pull in
-upstream changes that break the patches in `flake.nix`. If an update breaks your
-build, revert `flake.lock`:
+`ratpac-src` is pinned to an **explicit commit** (`905b40d`) in `flake.nix`, not to
+a branch, so `nix flake update` will *not* move RAT-PAC. That's deliberate: the
+`postPatch` section of `flake.nix` carries workarounds for upstream bugs, and a
+surprise RAT-PAC bump is the most likely way to break this environment.
+
+To move RAT-PAC deliberately, edit the `ratpac-src` URL in `flake.nix`, then:
 
 ```bash
-git checkout flake.lock   # if this repo is under version control
+nix flake update ratpac-src
+nix build          # patch guards will flag any workaround that no longer applies
+```
+
+> ### ⚠️ RAT-PAC 4.x needs a newer Geant4 than this flake provides
+>
+> Tags `4.0.0` and `4.1.0` declare `find_package(Geant4 11.4 REQUIRED)`, but
+> nixpkgs `nixos-25.11` ships Geant4 **11.3.2**, so they fail at CMake configure:
+>
+> ```
+> Could not find a configuration file for package "Geant4" that is
+> compatible with requested version "11.4".
+> ```
+>
+> Tag `3.4.0` and earlier have no Geant4 version floor and do build here.
+> Going to 4.x means moving `nixpkgs` to a channel with Geant4 11.4
+> (`nixos-unstable` has 11.4.2), which rebuilds ROOT and Geant4 from source and
+> will likely require reworking the `postPatch` fixups.
+
+If an update does break the build, revert the lock:
+
+```bash
+git checkout flake.lock
 ```
 
 Keeping `flake.lock` committed is what makes this reproducible — don't delete it.

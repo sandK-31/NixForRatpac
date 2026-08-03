@@ -46,8 +46,8 @@
       },
       "original": {
         "owner": "rat-pac",
-        "ref": "main",
         "repo": "ratpac-two",
+        "rev": "905b40d592bedd23736d159382fe9de6206a0b1b",
         "type": "github"
       }
     },
