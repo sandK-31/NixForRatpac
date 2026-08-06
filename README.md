@@ -23,6 +23,13 @@ archaeology. Works on macOS (Apple Silicon and Intel) and Linux.
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
 | Python | 3.x with `numpy`, `ROOT`, `plotly`, `particle` |
 
+**Don't need RAT-PAC?** There's a second shell with everything above *except*
+RAT-PAC — see [Step 3](#without-rat-pac-geant4--root-only):
+
+```bash
+nix develop .#geant4
+```
+
 ---
 
 ## Step 1 — Install Nix
@@ -178,11 +185,36 @@ nix develop
 When it's ready you'll see:
 
 ```
-Environment Ready: RAT-PAC (Latest Main) + Geant4 + ROOT
+Environment Ready: RAT-PAC 905b40d + Geant4 11.3.2 + ROOT 6.36.04
 ```
 
 You're now in a Bash shell with `rat`, `root`, `geant4-config`, and the Python
 environment on your `PATH`. Leave it with `exit` or `Ctrl-D`.
+
+### Without RAT-PAC (Geant4 + ROOT only)
+
+If you only want Geant4 and ROOT, use the `geant4` shell instead:
+
+```bash
+nix develop .#geant4
+```
+
+```
+Environment Ready: Geant4 11.3.2 + ROOT 6.36.04 (no RAT-PAC)
+```
+
+This shell is identical to the default one minus RAT-PAC: same Geant4 (with Qt),
+same ROOT, same datasets, same Python environment. RAT-PAC is not referenced by
+it at all, so Nix never builds or downloads it — `rat` won't be on your `PATH`,
+and `$RATROOT`, `$RATSHARE` and the RAT `$PYTHONPATH` entry are not set.
+
+> **This skips the RAT-PAC build, not the Geant4 build.** The long first-run
+> compile described below is mostly Geant4-with-Qt, which this shell still needs.
+> Expect it to save you minutes, not hours. Once you've built either shell, the
+> shared parts are cached and the other one starts fast.
+
+The two shells are generated from a single function in `flake.nix`, so fixes to
+the environment apply to both.
 
 > ### ⏱️ The first run takes a long time — this is expected
 >
@@ -204,10 +236,13 @@ environment on your `PATH`. Leave it with `exit` or `Ctrl-D`.
 # Run a single command in the environment without entering an interactive shell
 nix develop --command rat -h
 
+# Same, in the RAT-PAC-free shell
+nix develop .#geant4 --command geant4-config --version
+
 # Build just the RAT-PAC package; result appears at ./result
 nix build
 
-# Inspect what the flake provides
+# Inspect what the flake provides (lists both dev shells)
 nix flake show
 ```
 
@@ -239,17 +274,17 @@ This is a ROOT dictionary noise message, not a broken install. If the `usage: ra
 
 ## What the shell sets up for you
 
-| Variable | Value |
-| --- | --- |
-| `RATROOT` | the RAT-PAC store path |
-| `RATSHARE` | `$RATROOT/share/RAT` (macros, models, ratdb, python) |
-| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, ROOT, and Geant4 headers |
-| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, and Geant4 headers |
-| `PYTHONPATH` | `$RATSHARE/python` (the `rat`, `ratproc`, `rattest` modules) |
-| `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs |
-| `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` |
-| `QT_QPA_PLATFORM` | `cocoa` on macOS, `wayland` on Linux |
-| `SHELL` | the Nix-provided Bash |
+| Variable | Value | In `.#geant4`? |
+| --- | --- | --- |
+| `RATROOT` | the RAT-PAC store path | — |
+| `RATSHARE` | `$RATROOT/share/RAT` (macros, models, ratdb, python) | — |
+| `PYTHONPATH` | `$RATSHARE/python` (the `rat`, `ratproc`, `rattest` modules) | — |
+| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, ROOT, and Geant4 headers | yes, minus RAT-PAC |
+| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, and Geant4 headers | yes, minus RAT-PAC |
+| `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs | yes, minus `$RATROOT/lib` |
+| `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` | yes, minus `$RATROOT/lib` |
+| `QT_QPA_PLATFORM` | `cocoa` on macOS, `wayland` on Linux | yes |
+| `SHELL` | the Nix-provided Bash | yes |
 
 The Geant4 dataset variables (`G4LEDATA`, `G4NEUTRONHPDATA`, …) are set
 automatically by the dataset packages.

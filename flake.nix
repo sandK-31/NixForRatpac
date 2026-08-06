@@ -131,55 +131,83 @@
           };
         };
 
+        # Both dev shells are built from this one function so they cannot drift
+        # apart. withRatpac = false drops RAT-PAC from buildInputs entirely, so
+        # `nix develop .#geant4` never builds or downloads it.
+        mkRatpacShell = { withRatpac }:
+          let
+            inherit (pkgs.lib) optionalString;
+            # Trailing colon is part of the string, so it disappears along with
+            # the path when RAT-PAC is not included.
+            ratpacInc = optionalString withRatpac "${ratpac}/include:";
+            ratpacLib = optionalString withRatpac "${ratpac}/lib:";
+          in
+          pkgs.mkShell {
+            # Order matters: it sets PATH precedence. Keep RAT-PAC in the same
+            # slot it occupied before this shell was made optional.
+            buildInputs = [
+              pkgs.root
+              geant4custom
+              pkgs.cmake
+            ] ++ pkgs.lib.optional withRatpac ratpac
+              ++ [
+              pkgs.bash
+              pythonEnv
+            ] ++ geant4Datasets;
+
+            shellHook = ''
+              export SHELL="${pkgs.bash}/bin/bash"
+              export QT_PLUGIN_PATH="${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}"
+
+              ${if !isDarwin then ''
+                export QT_QPA_PLATFORM=wayland
+                export G4VIS_DEFAULT_DRIVER=TSG_QT_ZB
+                export DISPLAY=:0
+              '' else ''
+                export QT_QPA_PLATFORM=cocoa
+              ''}
+
+              ${optionalString withRatpac ''
+                export RATROOT="${ratpac}"
+                export RATSHARE="${ratpac}/share/RAT"
+              ''}
+
+              G4_INC="$(geant4-config --prefix)/include/Geant4"
+              ROOT_INC="$(root-config --incdir)"
+              G4_LIB="$(geant4-config --prefix)/lib"
+
+              export CPLUS_INCLUDE_PATH="$PWD/include:${ratpacInc}$ROOT_INC:$G4_INC''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
+              export ROOT_INCLUDE_PATH="$PWD/include:${ratpacInc}$G4_INC''${ROOT_INCLUDE_PATH:+:$ROOT_INCLUDE_PATH}"
+
+              ${optionalString withRatpac ''
+                # RAT's Python modules (rat, ratproc, rattest) live under $RATSHARE.
+                export PYTHONPATH="$RATSHARE/python''${PYTHONPATH:+:$PYTHONPATH}"
+              ''}
+
+              # macOS ignores LD_LIBRARY_PATH, so set both -- upstream's ratpac.sh
+              # does the same. $PWD/lib comes first so a locally built experiment
+              # library wins over anything else on the path.
+              RAT_LIB_PATH="$PWD/lib:${ratpacLib}$G4_LIB"
+              export LD_LIBRARY_PATH="$RAT_LIB_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+              export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
+
+              echo "Environment Ready: ${
+                if withRatpac then "RAT-PAC 905b40d + " else ""
+              }Geant4 $(geant4-config --version) + ROOT $(root-config --version)${
+                if withRatpac then "" else " (no RAT-PAC)"
+              }"
+            '';
+          };
+
       in
       {
         packages.default = ratpac;
 
-        devShells.default = pkgs.mkShell {
-          buildInputs = [
-            pkgs.root
-            geant4custom
-            pkgs.cmake
-            ratpac
-            pkgs.bash
-            pythonEnv
-          ] ++ geant4Datasets;
+        devShells.default = mkRatpacShell { withRatpac = true; };
 
-          shellHook = ''
-            export SHELL="${pkgs.bash}/bin/bash"
-            export QT_PLUGIN_PATH="${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}"
-
-            ${if !isDarwin then ''
-              export QT_QPA_PLATFORM=wayland
-              export G4VIS_DEFAULT_DRIVER=TSG_QT_ZB
-              export DISPLAY=:0
-            '' else ''
-              export QT_QPA_PLATFORM=cocoa
-            ''}
-
-            export RATROOT="${ratpac}"
-            export RATSHARE="${ratpac}/share/RAT"
-            
-            G4_INC="$(geant4-config --prefix)/include/Geant4"
-            ROOT_INC="$(root-config --incdir)"
-            G4_LIB="$(geant4-config --prefix)/lib"
-
-            export CPLUS_INCLUDE_PATH="$PWD/include:${ratpac}/include:$ROOT_INC:$G4_INC''${CPLUS_INCLUDE_PATH:+:$CPLUS_INCLUDE_PATH}"
-            export ROOT_INCLUDE_PATH="$PWD/include:${ratpac}/include:$G4_INC''${ROOT_INCLUDE_PATH:+:$ROOT_INCLUDE_PATH}"
-
-            # RAT's Python modules (rat, ratproc, rattest) live under $RATSHARE.
-            export PYTHONPATH="$RATSHARE/python''${PYTHONPATH:+:$PYTHONPATH}"
-
-            # macOS ignores LD_LIBRARY_PATH, so set both -- upstream's ratpac.sh
-            # does the same. $PWD/lib comes first so a locally built experiment
-            # library wins over the one shipped with RAT-PAC.
-            RAT_LIB_PATH="$PWD/lib:${ratpac}/lib:$G4_LIB"
-            export LD_LIBRARY_PATH="$RAT_LIB_PATH''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
-            export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
-
-            echo "Environment Ready: RAT-PAC 905b40d + Geant4 $(geant4-config --version) + ROOT $(root-config --version)"
-          '';
-        };
+        # `nix develop .#geant4` -- Geant4 + ROOT + Python only, for people who
+        # do not want RAT-PAC built on their machine.
+        devShells.geant4 = mkRatpacShell { withRatpac = false; };
       }
     );
 }
