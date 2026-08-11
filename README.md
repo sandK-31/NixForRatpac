@@ -189,13 +189,23 @@ package manager (`apt install git`, `dnf install git`, …).
 > **Or skip the clone entirely.** Nix can run a flake straight from GitHub:
 >
 > ```bash
+> # everything: RAT-PAC + Geant4 + ROOT
 > nix develop github:sandK-31/NixForRatpac
+>
+> # Geant4 + ROOT only, no RAT-PAC
 > nix develop github:sandK-31/NixForRatpac#geant4
 > ```
 >
-> This is handy for a quick try, and the `$PWD/include` and `$PWD/lib` entries
-> still point at whatever directory you ran it from. Clone if you want to edit
-> `flake.nix` or pin your own RAT-PAC revision.
+> The `#geant4` suffix picks *which* of the flake's two dev shells to enter.
+> With no suffix you get the default shell, which includes RAT-PAC; `#geant4`
+> selects the RAT-PAC-free one described in
+> [Step 4](#without-rat-pac-geant4--root-only). The same suffix works on a
+> clone, where it's written `nix develop .#geant4` — the `.` just means "the
+> flake in this directory" instead of a GitHub URL.
+>
+> Running from GitHub is handy for a quick try, and the `$PWD/include` and
+> `$PWD/lib` entries still point at whatever directory you ran it from. Clone
+> if you want to edit `flake.nix` or pin your own RAT-PAC revision.
 
 ---
 
