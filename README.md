@@ -24,7 +24,7 @@ archaeology. Works on macOS (Apple Silicon and Intel) and Linux.
 | Python | 3.x with `numpy`, `ROOT`, `plotly`, `particle` |
 
 **Don't need RAT-PAC?** There's a second shell with everything above *except*
-RAT-PAC — see [Step 3](#without-rat-pac-geant4--root-only):
+RAT-PAC — see [Step 4](#without-rat-pac-geant4--root-only):
 
 ```bash
 nix develop .#geant4
@@ -175,10 +175,35 @@ restarted the daemon if you used Option B.
 
 ---
 
-## Step 3 — Start the environment
+## Step 3 — Get this repo
 
 ```bash
-cd /path/to/NixForRatpac
+git clone https://github.com/sandK-31/NixForRatpac.git
+cd NixForRatpac
+```
+
+macOS ships `git` with the Xcode Command Line Tools; if it's missing, the first
+`git` command triggers a prompt to install them. On Linux, install it with your
+package manager (`apt install git`, `dnf install git`, …).
+
+> **Or skip the clone entirely.** Nix can run a flake straight from GitHub:
+>
+> ```bash
+> nix develop github:sandK-31/NixForRatpac
+> nix develop github:sandK-31/NixForRatpac#geant4
+> ```
+>
+> This is handy for a quick try, and the `$PWD/include` and `$PWD/lib` entries
+> still point at whatever directory you ran it from. Clone if you want to edit
+> `flake.nix` or pin your own RAT-PAC revision.
+
+---
+
+## Step 4 — Start the environment
+
+From inside the clone:
+
+```bash
 nix develop
 ```
 
@@ -248,7 +273,7 @@ nix flake show
 
 ---
 
-## Step 4 — Check that it works
+## Step 5 — Check that it works
 
 Inside `nix develop`:
 
