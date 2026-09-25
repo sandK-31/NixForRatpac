@@ -8,7 +8,8 @@ nix develop
 ```
 
 No `apt`/`brew` packages to install, no manual CMake builds, no `LD_LIBRARY_PATH`
-archaeology. Works on macOS (Apple Silicon and Intel) and Linux.
+archaeology. Works on macOS (Apple Silicon and Intel) and Linux, and on Windows
+through WSL 2 — see [Step 1](#windows-wsl-2).
 
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
 > [Sander Katz](https://github.com/sandK-31).
@@ -53,7 +54,77 @@ It will ask for your password (it creates a separate `/nix` APFS volume and a
 sh <(curl -L https://nixos.org/nix/install) --daemon
 ```
 
-### After installing (both platforms)
+### Windows (WSL 2)
+
+There is no native Windows build — Nix needs a POSIX system and a `/nix` store.
+On Windows you install **WSL 2** and then follow the *Linux* path inside it.
+Everything after this point (`nix develop`, `rat`, ROOT, the Geant4 Qt viewer)
+then behaves exactly as it does on a native Linux box, and GUI windows appear as
+ordinary Windows windows courtesy of WSLg.
+
+You need Windows 11, or Windows 10 21H2+ with WSLg, and roughly **40 GB free** on
+the drive holding the WSL disk — `/nix/store` gets large.
+
+**1. Install WSL 2 and Ubuntu.** In an *administrator* PowerShell:
+
+```powershell
+wsl --install -d Ubuntu
+```
+
+Reboot if it asks, then launch **Ubuntu** from the Start menu and create your
+UNIX username and password when prompted.
+
+**2. Make sure WSL itself is current.** WSLg — the component that draws Qt
+windows — ships with WSL, not with Ubuntu:
+
+```powershell
+wsl --update
+wsl --version
+```
+
+**3. Turn on systemd.** The multi-user Nix install expects systemd, which WSL
+does not start by default. Inside Ubuntu:
+
+```bash
+sudo tee -a /etc/wsl.conf >/dev/null <<'EOF'
+[boot]
+systemd=true
+EOF
+```
+
+Back in PowerShell, restart the distro so it takes effect:
+
+```powershell
+wsl --shutdown
+```
+
+Reopen Ubuntu and check:
+
+```bash
+systemctl is-system-running    # "running" or "degraded" — either is fine
+```
+
+**4. Install Nix** with the Linux command above, run from inside Ubuntu:
+
+```bash
+sh <(curl -L https://nixos.org/nix/install) --daemon
+```
+
+> If you can't enable systemd (locked-down machine, ancient WSL), the single-user
+> install works too: `sh <(curl -L https://nixos.org/nix/install) --no-daemon`.
+> It puts the store under your user instead of a daemon, and everything in this
+> README still applies.
+
+From here on **everything happens inside the Ubuntu shell.** Steps 2–5 are the
+Linux instructions verbatim; `nix`, `rat` and `root` do not exist on the Windows
+side and PowerShell cannot see them.
+
+> **If a window opens as a blank taskbar entry with `[WARN: COPY MODE]` in its
+> title** — the digitizer is the usual victim — that's a known WSLg bug, not
+> anything you did. The fix is two lines: see
+> [Troubleshooting](#troubleshooting).
+
+### After installing (all platforms)
 
 **Open a new terminal window.** The installer appends a hook to `/etc/zshrc`
 (macOS) or `/etc/bash.bashrc` (Linux) that puts `nix` on your `PATH`, and it only
@@ -185,6 +256,12 @@ cd NixForRatpac
 macOS ships `git` with the Xcode Command Line Tools; if it's missing, the first
 `git` command triggers a prompt to install them. On Linux, install it with your
 package manager (`apt install git`, `dnf install git`, …).
+
+> **On WSL, clone into the Linux filesystem** — `~/NixForRatpac`, never
+> `/mnt/c/Users/…`. Builds on the Windows drive are several times slower, and the
+> DrvFs mount doesn't give Nix the permissions and symlinks it expects. To open
+> the files from Windows apps, browse to `\\wsl.localhost\Ubuntu\home\<you>\`
+> instead.
 
 > **Or skip the clone entirely.** Nix can run a flake straight from GitHub:
 >
@@ -423,6 +500,53 @@ nix build --out-link ./result   # ./result is a GC root
 **Geant4 Qt visualization doesn't open a window (Linux)**
 The flake sets `QT_QPA_PLATFORM=wayland` and `DISPLAY=:0`. On an X11-only session
 try `QT_QPA_PLATFORM=xcb nix develop`.
+
+**Windows: a window never draws and its title says `[WARN: COPY MODE]`**
+This is a WSLg bug, not a RAT-PAC or Nix one. The digitizer — or any other GUI:
+the Geant4 Qt viewer, a ROOT canvas, even `xeyes` — starts, gets a taskbar entry
+with a blank preview, and never paints anything. WSLg failed to set up its
+shared-memory channel to the host and fell back to copying pixels over RDP.
+Tracked as [microsoft/WSL#40618](https://github.com/microsoft/WSL/issues/40618),
+moved to [microsoft/wslg#1456](https://github.com/microsoft/wslg/issues/1456),
+still open as of WSL 2.9.x (September 2026).
+
+Confirm it's this and not your own code:
+
+```bash
+grep use_gfxredir /mnt/wslg/weston.log
+# [12:01:31.023] RDP backend: use_gfxredir = 0    ← 0 is broken, 1 is healthy
+```
+
+*Fix it now* — restart WSLg's compositor in the WSL system distro. Takes a
+second, and doesn't kill your shells or a running job:
+
+```bash
+wsl.exe -d "$WSL_DISTRO_NAME" --system -- sh -c 'kill $(pgrep -x weston)'
+```
+
+Relaunch the digitizer; the window appears and the warning is gone.
+
+*Fix it for good* — the trigger is `/mnt/shared_memory` being absent when WSLg
+starts, so mount it yourself at boot. Inside Ubuntu:
+
+```bash
+sudo mkdir -p /mnt/shared_memory
+echo 'tmpfs /mnt/shared_memory tmpfs defaults 0 0' | sudo tee -a /etc/fstab
+```
+
+and make sure `/etc/wsl.conf` contains:
+
+```
+[automount]
+mountFsTab=true
+```
+
+Then `wsl --shutdown` from PowerShell and start Ubuntu again.
+
+The bug is racy, so it can return mid-session — classically after you close the
+last GUI window, `msrdc.exe` exits, and you open a new one. When it does, the
+`weston` one-liner above is the thing to keep handy. A plain `wsl --shutdown`
+also clears it, at the cost of everything you had running.
 
 ---
 
