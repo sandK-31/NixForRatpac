@@ -19,6 +19,9 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 > Geant4 Qt viewer now runs on Qt6 rather than Qt5 — see
 > [What changed on this branch](#what-changed-on-this-branch).
 >
+> It also carries a macOS-only linker workaround for an upstream RAT-PAC bug:
+> [Known issue: libRATEvent on macOS](#known-issue-libratevent-on-macos).
+>
 > For the environment the group is currently using, check out `main`.
 
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
@@ -473,34 +476,18 @@ exercised on macOS. The Linux/WSLg path in `flake.nix` (`QT_QPA_PLATFORM=wayland
 `G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`) was written for Qt5 and has not been re-checked
 under Qt6.
 
-### `libRATEvent` does not link on macOS
+### A Darwin-only linker flag
 
-RAT-PAC 4.3.0 only builds on Darwin with an extra linker flag, added to
-`cmakeFlags`:
+RAT-PAC 4.3.0 does not link on macOS without this, added to `cmakeFlags` and
+gated on Darwin:
 
 ```
 -DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup
 ```
 
-`libRATEvent` is the slim library for reading DS files in ROOT without the full
-simulation — `src/CMakeLists.txt` builds it from the DB/DS/IO sources only. But
-`io/src/DSReader.cc` is in it and its `BuildGeometry()` calls `RAT::PhysicsList`
-and `RAT::DetectorConstruction`, which live in the `physics` and `geo` modules;
-and it links the `RATDict` object library, which is the dictionary for *every*
-registered header, so it carries stubs for classes such as
-`RAT::TransitTimeCalculator` whose implementations RATEvent omits. Only the full
-`libRATPAC` links all of those.
-
-Linux's `ld` permits undefined symbols in a shared library and resolves them at
-load time, so this builds on the cluster untouched. macOS requires every symbol
-resolved at link time. The flag restores the Linux behaviour.
-
-This defers resolution rather than fixing the dependency. In practice
-`libRATEvent` loads next to `libRATPAC`, where the symbols resolve — a test run
-initialises `TransitTimeCalculator` without complaint. Loaded on its own,
-calling `DSReader::BuildGeometry()` would abort at run time instead of failing
-at build time. **This is an upstream packaging bug worth filing against
-`rat-pac/ratpac-two` rather than carrying here forever.**
+It is a workaround for an upstream bug, not a fix, and it has a caveat worth
+understanding before you rely on this branch — see
+[Known issue: libRATEvent on macOS](#known-issue-libratevent-on-macos).
 
 ### Two `postPatch` fixups deleted
 
@@ -545,6 +532,130 @@ git checkout flake.lock
 Keeping `flake.lock` committed is what makes this reproducible — don't delete it.
 
 ---
+
+## Known issue: libRATEvent on macOS
+
+**Short version:** `libRATEvent` is incomplete upstream. On macOS the build
+fails outright; the flag above papers over it. It does not affect `rat`,
+`libRATPAC`, or any simulation you run, and if you read RAT output with
+`uproot` — as everything in this group currently does — it does not affect you
+at all.
+
+### Symptom
+
+Without the flag, the build dies at 80% with four undefined symbols:
+
+```
+Undefined symbols for architecture arm64:
+  "RAT::PhysicsList::PhysicsList()", referenced from:
+      RAT::DSReader::BuildGeometry() in DSReader.cc.o
+  "RAT::DetectorConstruction::GetDetectorConstruction()", referenced from:
+      RAT::DSReader::BuildGeometry() in DSReader.cc.o
+  "RAT::TransitTimeCalculator::TransitTimeCalculator(...)", referenced from:
+      ROOT::new_RATcLcLTransitTimeCalculator(void*) in G__RATDict.cxx.o
+  "RAT::TransitTimeCalculator::~TransitTimeCalculator()", referenced from:
+      ROOT::delete_RATcLcLTransitTimeCalculator(void*) in G__RATDict.cxx.o
+```
+
+Note the two `referenced from` sources. There are **two independent causes**.
+
+### Cause 1 — a source file that reaches outside its module
+
+`src/CMakeLists.txt:68` builds `RATEvent` from a hand-picked source list: DB,
+DS, IO, plus `core/src/Log.cc` and `util/src/ReadFile.cc`. One of those,
+`io/src/DSReader.cc:60`, starts a Geant4 run manager:
+
+```cpp
+runManager->SetUserInitialization(new PhysicsList());
+runManager->SetUserInitialization(DetectorConstruction::GetDetectorConstruction());
+```
+
+`PhysicsList` is in `src/physics`, `DetectorConstruction` in `src/geo`. Neither
+module is in RATEvent's sources or its link line (`src/CMakeLists.txt:87` lists
+only `${Geant4_LIBRARIES} ${ROOT_LIBRARIES} RATDict stlplus`).
+
+### Cause 2 — one global ROOT dictionary for a deliberately partial library
+
+`src/CMakeLists.txt:30` collects `RATDICT_HEADERS` from a **global property**
+that every subdirectory appends to, generates a single `G__RATDict.cxx` from all
+of them, and wraps it in an OBJECT library. `src/util/CMakeLists.txt:37`
+registers `RAT/TransitTimeCalculator.hh`, so the dictionary emits ctor/dtor
+wrappers for it. RATEvent links `RATDict` but compiles only
+`util/src/ReadFile.cc` from `src/util` — not `util/src/TransitTimeCalculator.cc`.
+Because `RATDict` is an OBJECT library, its objects are copied wholesale into
+every consumer, so the unused stubs come too.
+
+This is the deeper of the two problems: a partial library cannot link an
+all-headers dictionary, and it will keep producing this class of breakage as
+more classes get registered.
+
+### Why only macOS
+
+Linux's `ld` permits undefined symbols when linking a shared object and leaves
+them to the dynamic loader. Apple's linker defaults to `-undefined error` for a
+dylib. Same code, different default — which is why the cluster builds this
+untouched and why **the flag is `isDarwin`-gated and never applies on Linux**.
+
+A clean Linux build therefore says nothing about whether the workaround is
+sound.
+
+### What the flag does, and what it does not
+
+It defers the four symbols to load time, where `libRATPAC` supplies them:
+
+```
+$ nm -u libRATEvent.so | c++filt      # undefined here
+RAT::PhysicsList::PhysicsList()
+RAT::DetectorConstruction::GetDetectorConstruction()
+RAT::TransitTimeCalculator::TransitTimeCalculator(...)
+RAT::TransitTimeCalculator::~TransitTimeCalculator()
+
+$ nm -g libRATPAC.so | c++filt        # defined (T) here
+000...223d54 T RAT::PhysicsList::PhysicsList()
+000...16c208 T RAT::DetectorConstruction::GetDetectorConstruction()
+000...273248 T RAT::TransitTimeCalculator::TransitTimeCalculator(...)
+```
+
+In practice the two libraries load together and it resolves — a test run
+initialises `TransitTimeCalculator` without complaint. **Loaded on its own**,
+calling `DSReader::BuildGeometry()` or constructing a `TransitTimeCalculator`
+would abort at run time instead of failing at build time.
+
+That standalone case is the entire exposure, and it is not macOS-specific: on
+Linux the same call would fail as an unresolved-symbol error at run time. Only
+the *build failure* is a Mac thing; the incompleteness is everyone's.
+
+### Does it matter here?
+
+Not for current work. Nothing in this group's `python/` or `C++/` trees
+references `libRATEvent`, `DSReader`, `RAT::DS`, or `gSystem.Load`. ROOT output
+is read with `uproot`, which parses the file format directly and never loads a
+RAT library or dictionary. Most macros write `outntuple` (flat ntuples) anyway.
+
+It would matter if someone loads `libRATEvent` in a ROOT session to read DS
+files without the full simulation — which is exactly what that library exists
+for.
+
+### How it should actually be fixed
+
+Not by patching `target_link_libraries(RATEvent ...)` to add `geo`, `physics`
+and `util`. That works, but those modules pull in most of the tree
+transitively, so RATEvent converges on `libRATPAC` and stops being the slim
+reader it exists to be — and a patch that rewrites upstream CMake is far more
+fragile across version bumps than a linker flag.
+
+Upstream, two independent changes:
+
+1. **Move `DSReader::BuildGeometry()`** out of `io/src/DSReader.cc` into a
+   translation unit only `RATPAC` compiles. It is the only thing dragging
+   `PhysicsList`/`DetectorConstruction` into a DB/DS/IO library, and geometry
+   construction does not belong in a file reader.
+2. **Split the dictionary.** Add a second, smaller dictionary covering just the
+   DS/IO/DB headers and have `RATEvent` link that one instead of the
+   all-headers `RATDict`.
+
+Worth filing against `rat-pac/ratpac-two` rather than carrying here
+indefinitely. (2) has not been prototyped.
 
 ## Troubleshooting
 
