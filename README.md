@@ -11,6 +11,16 @@ No `apt`/`brew` packages to install, no manual CMake builds, no `LD_LIBRARY_PATH
 archaeology. Works on macOS (Apple Silicon and Intel) and Linux, and on Windows
 through WSL 2 — see [Step 1](#windows-wsl-2).
 
+> ### 🚧 You are on the `unstable` branch
+>
+> This branch moves the environment to nixpkgs `nixos-26.05` (Geant4 11.4.1,
+> ROOT 6.40.00) and RAT-PAC **4.3.0**. It builds and runs a 50-event electron
+> macro on aarch64-darwin, but it has **not** been tested on Linux, and the
+> Geant4 Qt viewer now runs on Qt6 rather than Qt5 — see
+> [What changed on this branch](#what-changed-on-this-branch).
+>
+> For the environment the group is currently using, check out `main`.
+
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
 > [Sander Katz](https://github.com/sandK-31).
 
@@ -18,9 +28,9 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 
 | Component | Version (as pinned) |
 | --- | --- |
-| RAT-PAC 2 | `rat-pac/ratpac-two` @ `905b40d` (2026-03-23) |
-| Geant4 | 11.3.2, built with Qt visualization enabled |
-| ROOT | 6.36.04 |
+| RAT-PAC 2 | `rat-pac/ratpac-two` @ `4.3.0` (2026-09-18) |
+| Geant4 | 11.4.1, built with Qt6 visualization enabled |
+| ROOT | 6.40.00 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
 | Python | 3.x with `numpy`, `ROOT`, `plotly`, `particle` |
 
@@ -297,7 +307,7 @@ nix develop
 When it's ready you'll see:
 
 ```
-Environment Ready: RAT-PAC 905b40d + Geant4 11.3.2 + ROOT 6.36.04
+Environment Ready: RAT-PAC 4.3.0 + Geant4 11.4.1 + ROOT 6.40.00
 ```
 
 You're now in a Bash shell with `rat`, `root`, `geant4-config`, and the Python
@@ -312,7 +322,7 @@ nix develop .#geant4
 ```
 
 ```
-Environment Ready: Geant4 11.3.2 + ROOT 6.36.04 (no RAT-PAC)
+Environment Ready: Geant4 11.4.1 + ROOT 6.40.00 (no RAT-PAC)
 ```
 
 This shell is identical to the default one minus RAT-PAC: same Geant4 (with Qt),
@@ -365,10 +375,10 @@ nix flake show
 Inside `nix develop`:
 
 ```bash
-which rat            # → /nix/store/…-ratpac-two-unstable/bin/rat
+which rat            # → /nix/store/…-ratpac-two-4.3.0/bin/rat
 rat -h               # prints the RAT usage/options block
-root-config --version    # → 6.36.04
-geant4-config --version  # → 11.3.2
+root-config --version    # → 6.40.00
+geant4-config --version  # → 11.4.1
 echo $RATROOT
 ```
 
@@ -420,10 +430,10 @@ nix flake metadata
 nix flake update
 ```
 
-`ratpac-src` is pinned to an **explicit commit** (`905b40d`) in `flake.nix`, not to
-a branch, so `nix flake update` will *not* move RAT-PAC. That's deliberate: the
-`postPatch` section of `flake.nix` carries workarounds for upstream bugs, and a
-surprise RAT-PAC bump is the most likely way to break this environment.
+`ratpac-src` is pinned to the **`4.3.0` tag** in `flake.nix`, not to a branch, so
+`nix flake update` will *not* move RAT-PAC. That's deliberate: the `postPatch`
+section of `flake.nix` carries a workaround for an upstream bug, and a surprise
+RAT-PAC bump is the most likely way to break this environment.
 
 To move RAT-PAC deliberately, edit the `ratpac-src` URL in `flake.nix`, then:
 
@@ -432,20 +442,99 @@ nix flake update ratpac-src
 nix build          # patch guards will flag any workaround that no longer applies
 ```
 
-> ### ⚠️ RAT-PAC 4.x needs a newer Geant4 than this flake provides
->
-> Tags `4.0.0` and `4.1.0` declare `find_package(Geant4 11.4 REQUIRED)`, but
-> nixpkgs `nixos-25.11` ships Geant4 **11.3.2**, so they fail at CMake configure:
->
-> ```
-> Could not find a configuration file for package "Geant4" that is
-> compatible with requested version "11.4".
-> ```
->
-> Tag `3.4.0` and earlier have no Geant4 version floor and do build here.
-> Going to 4.x means moving `nixpkgs` to a channel with Geant4 11.4
-> (`nixos-unstable` has 11.4.2), which rebuilds ROOT and Geant4 from source and
-> will likely require reworking the `postPatch` fixups.
+## What changed on this branch
+
+`main` was stuck on RAT-PAC 3.x because tags `4.0.0` and later declare
+`find_package(Geant4 11.4 REQUIRED)` while nixpkgs `nixos-25.11` shipped Geant4
+**11.3.2**. nixpkgs `nixos-26.05` ships **11.4.1**, which clears that floor, so
+this branch moves both at once.
+
+Geant4 was the easy part. Three other things had to change.
+
+### Qt5 → Qt6
+
+nixpkgs 26.05 switched geant4's `enableQt` from `qt5` to `qt6`. geant4
+propagates `qt6.wrapQtAppsHook`, which aborts the build outright if Qt5 appears
+anywhere in the same closure:
+
+```
+Error: detected mismatched Qt dependencies:
+    /nix/store/…-qtbase-5.15.19-dev
+    /nix/store/…-qtbase-6.11.2
+```
+
+So `pkgs.qt5.qtbase` in RAT-PAC's `buildInputs` became `pkgs.qt6.qtbase`. The
+`shellHook` needed a second edit: `qt6.qtbase` has no `bin` output (only `out`
+and `dev`), so `QT_PLUGIN_PATH` is built from the package itself, and the plugin
+prefix moved to `lib/qt-6/plugins`.
+
+**This is the part most likely to still be wrong.** The Qt viewer has only been
+exercised on macOS. The Linux/WSLg path in `flake.nix` (`QT_QPA_PLATFORM=wayland`,
+`G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`) was written for Qt5 and has not been re-checked
+under Qt6.
+
+### `libRATEvent` does not link on macOS
+
+RAT-PAC 4.3.0 only builds on Darwin with an extra linker flag, added to
+`cmakeFlags`:
+
+```
+-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup
+```
+
+`libRATEvent` is the slim library for reading DS files in ROOT without the full
+simulation — `src/CMakeLists.txt` builds it from the DB/DS/IO sources only. But
+`io/src/DSReader.cc` is in it and its `BuildGeometry()` calls `RAT::PhysicsList`
+and `RAT::DetectorConstruction`, which live in the `physics` and `geo` modules;
+and it links the `RATDict` object library, which is the dictionary for *every*
+registered header, so it carries stubs for classes such as
+`RAT::TransitTimeCalculator` whose implementations RATEvent omits. Only the full
+`libRATPAC` links all of those.
+
+Linux's `ld` permits undefined symbols in a shared library and resolves them at
+load time, so this builds on the cluster untouched. macOS requires every symbol
+resolved at link time. The flag restores the Linux behaviour.
+
+This defers resolution rather than fixing the dependency. In practice
+`libRATEvent` loads next to `libRATPAC`, where the symbols resolve — a test run
+initialises `TransitTimeCalculator` without complaint. Loaded on its own,
+calling `DSReader::BuildGeometry()` would abort at run time instead of failing
+at build time. **This is an upstream packaging bug worth filing against
+`rat-pac/ratpac-two` rather than carrying here forever.**
+
+### Two `postPatch` fixups deleted
+
+Upstream fixed both between `905b40d` and `4.3.0`, and re-applying them would
+rewrite correct code:
+
+- **`TPython::Eval` → `Exec`** — `src/core/src/PythonProc.cc` now guards the old
+  implementation behind `#if ROOT_VERSION_CODE < ROOT_VERSION(6, 34, 0)`. Note
+  the old `fixup` guard would *not* have caught this: it greps for
+  `TPython::Eval`, which still matches inside the dead branch.
+- **`duration_cast(…).count()`** — already wrapped in `static_cast<long>` at all
+  three call sites in `src/daq/src/WaveformAnalysisLucyDDM.cc`.
+
+`copy-compile-commands` is still needed and still applies.
+
+### What has and hasn't been checked
+
+Verified on aarch64-darwin: the environment builds, `nix develop` reports
+`RAT-PAC 4.3.0 + Geant4 11.4.1 + ROOT 6.40.00`, and
+`macros/examples/electron.mac` cut to 50 events runs to completion (50/50
+triggered) with a readable `output.ntuple.root`.
+
+Not checked: **Linux at all**, the Qt6 viewer, `nix develop .#geant4`, and any
+downstream experiment code compiled against ROOT 6.40. The ROOT 6.36 → 6.40 jump
+caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
+it.
+
+One pre-existing startup warning is unchanged from `main` and is not a
+regression:
+
+```
+Error in cling::AutoLoadingVisitor::InsertIntoAutoLoadingState:
+   Missing FileEntry for smart_ptr.hpp
+```
 
 If an update does break the build, revert the lock:
 

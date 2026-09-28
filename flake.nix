@@ -4,19 +4,18 @@
   description = "Unified Geant4 + ROOT + RAT-PAC development environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    # 26.05 rather than 25.11: it ships Geant4 11.4.1, which is what the
+    # RAT-PAC 4.x line requires (find_package(Geant4 11.4 REQUIRED)).
+    # It also carries ROOT 6.40.00, up from 6.36.04 on 25.11; that jump turned
+    # out to cost nothing. The two things the channel bump did cost are the
+    # Qt6 switch and the Darwin linker flag, both commented where they apply.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
-    # Pinned to an explicit revision rather than the main branch, so
-    # `nix flake update` cannot move RAT-PAC underneath the postPatch
-    # workarounds. This is the exact commit this environment was built and
-    # tested against.
-    #
-    # Deliberately NOT on a 4.x release tag: those require Geant4 11.4
-    # (find_package(Geant4 11.4 REQUIRED)) and nixpkgs 25.11 ships 11.3.2, so
-    # they fail at CMake configure. Moving to 4.x means bumping nixpkgs to a
-    # channel with Geant4 11.4 and reworking the patches below.
+    # Tag 4.3.0 (commit 8030824, 2026-09-18), which at the time of writing is
+    # also the head of main. A tag is immutable enough that `nix flake update`
+    # cannot move RAT-PAC underneath the postPatch workaround below.
     ratpac-src = {
-      url = "github:rat-pac/ratpac-two/905b40d592bedd23736d159382fe9de6206a0b1b";
+      url = "github:rat-pac/ratpac-two/4.3.0";
       flake = false;
     };
   };
@@ -54,7 +53,7 @@
 
         ratpac = pkgs.stdenv.mkDerivation {
           pname = "ratpac-two";
-          version = "unstable";
+          version = "4.3.0";
           src = ratpac-src;
 
           nativeBuildInputs = with pkgs; [
@@ -79,7 +78,10 @@
             libxpm
             libxft
             libxext
-            qt5.qtbase
+            # Qt6, not Qt5: nixpkgs 26.05 switched geant4's enableQt to qt6, and
+            # geant4 propagates qt6.wrapQtAppsHook, which aborts the build if it
+            # finds Qt5 anywhere in the same closure.
+            qt6.qtbase
           ]) ++ pkgs.lib.optionals (!isDarwin) (with pkgs; [
             # null on darwin, so these only ever contribute on Linux
             libGL
@@ -94,12 +96,31 @@
             "-DCMAKE_BUILD_TYPE=Release"
             "-DROOT_DIR=${pkgs.root}/cmake"
             "-DFFTW3_DIR=${fftw3-cmake}/lib/cmake/FFTW3"
+          ] ++ pkgs.lib.optionals isDarwin [
+            # RAT-PAC 4.3.0 does not link libRATEvent against everything it
+            # references: DSReader.cc calls RAT::PhysicsList and
+            # RAT::DetectorConstruction, and the RATDict object library carries
+            # dictionary stubs for classes (RAT::TransitTimeCalculator) whose
+            # implementations live in modules RATEvent omits. Only the full
+            # libRATPAC links those.
+            #
+            # ld on Linux allows undefined symbols in a shared library and
+            # resolves them at load time, so this builds there. macOS requires
+            # every symbol resolved at link time unless told otherwise, so
+            # defer them the same way. libRATEvent is loaded alongside
+            # libRATPAC in practice, which is where they resolve.
+            "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup"
           ];
 
-          # Upstream compatibility fixes. Each one is guarded by a grep so that if
-          # ratpac-src moves and a fix stops applying, the build fails loudly here
-          # instead of the sed silently matching nothing and failing later (or not
-          # at all, leaving the fix quietly absent).
+          # Upstream compatibility fix, guarded by a grep so that if ratpac-src
+          # moves and it stops applying, the build fails loudly here instead of
+          # the sed silently matching nothing.
+          #
+          # Two patches carried before the 26.05 bump are gone: as of 4.3.0
+          # upstream guards the TPython::Eval path behind
+          # `#if ROOT_VERSION_CODE < ROOT_VERSION(6, 34, 0)`, and it already
+          # wraps every duration_cast(...).count() in static_cast<long>.
+          # Re-applying either here would rewrite correct code.
           postPatch = ''
             fixup() { # fixup <description> <file> <pattern>
               grep -q "$3" "$2" \
@@ -110,17 +131,6 @@
             # is read-only in the Nix sandbox.
             fixup "copy-compile-commands" CMakeLists.txt 'copy-compile-commands'
             sed -i '/add_custom_target(/,/^)/{/copy-compile-commands/,/^)/d; /add_custom_target(/d}' CMakeLists.txt
-
-            # ROOT 6.36 removed TPython::Eval; TPython::Exec is the replacement.
-            fixup "TPython::Eval" src/core/src/PythonProc.cc 'TPython::Eval'
-            sed -i 's/TPython::Eval/TPython::Exec/g' src/core/src/PythonProc.cc
-
-            # `duration_cast<...>(...).count()` returns a rep that is ambiguous for
-            # RAT's overloaded operator<<; pin it to long. Non-greedy match across
-            # newlines, so it also catches the call split over two lines.
-            fixup "chrono duration_cast" src/daq/src/WaveformAnalysisLucyDDM.cc 'duration_cast'
-            find src -name "*.cc" -exec perl -0777 -pi \
-              -e 's/(std::chrono::duration_cast<.*?>\(.*?\)\s*\.count\(\))/static_cast<long>($1)/gs' {} +
           '';
 
           meta = {
@@ -157,7 +167,8 @@
 
             shellHook = ''
               export SHELL="${pkgs.bash}/bin/bash"
-              export QT_PLUGIN_PATH="${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}"
+              # qt6.qtbase has no `bin` output (just out/dev), unlike qt5.qtbase.
+              export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}"
 
               ${if !isDarwin then ''
                 export QT_QPA_PLATFORM=wayland
@@ -192,7 +203,7 @@
               export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
               echo "Environment Ready: ${
-                if withRatpac then "RAT-PAC 905b40d + " else ""
+                if withRatpac then "RAT-PAC 4.3.0 + " else ""
               }Geant4 $(geant4-config --version) + ROOT $(root-config --version)${
                 if withRatpac then "" else " (no RAT-PAC)"
               }"
