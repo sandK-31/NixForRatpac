@@ -33,17 +33,6 @@
           G4TENDL G4RadioactiveDecay
         ];
 
-        fftw3-cmake = pkgs.writeTextDir "lib/cmake/FFTW3/FFTW3Config.cmake" ''
-          if(NOT TARGET FFTW3::fftw3)
-            add_library(FFTW3::fftw3 SHARED IMPORTED)
-            set_target_properties(FFTW3::fftw3 PROPERTIES
-              IMPORTED_LOCATION "${pkgs.fftw}/lib/libfftw3${if isDarwin then ".dylib" else ".so"}"
-              INTERFACE_INCLUDE_DIRECTORIES "${pkgs.fftw.dev}/include"
-            )
-          endif()
-          set(FFTW3_FOUND TRUE)
-        '';
-
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
           numpy
           root
@@ -95,7 +84,6 @@
             "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
             "-DCMAKE_BUILD_TYPE=Release"
             "-DROOT_DIR=${pkgs.root}/cmake"
-            "-DFFTW3_DIR=${fftw3-cmake}/lib/cmake/FFTW3"
           ];
 
           # Upstream compatibility fix, guarded by a grep so that if ratpac-src
