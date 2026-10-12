@@ -14,13 +14,14 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 > ### 🚧 You are on the `unstable` branch
 >
 > This branch moves the environment to nixpkgs `nixos-26.05` (Geant4 11.4.1,
-> ROOT 6.40.00) and RAT-PAC **4.3.0**. It builds and runs a 50-event electron
+> ROOT 6.40.00) and RAT-PAC **4.4.0**. It builds and runs a 50-event electron
 > macro on aarch64-darwin, but it has **not** been tested on Linux, and the
 > Geant4 Qt viewer now runs on Qt6 rather than Qt5 — see
 > [What changed on this branch](#what-changed-on-this-branch).
 >
-> It also carries a macOS-only linker workaround for an upstream RAT-PAC bug:
-> [Known issue: libRATEvent on macOS](#known-issue-libratevent-on-macos).
+> RAT-PAC 4.4.0 removed `libRATEvent`. If your experiment's `CMakeLists.txt`
+> links `RATEvent`, drop it and link `RATPAC` alone — see
+> [RAT-PAC 4.3.0 → 4.4.0](#rat-pac-430--440-libratevent-is-gone).
 >
 > For the environment the group is currently using, check out `main`.
 
@@ -31,7 +32,7 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 
 | Component | Version (as pinned) |
 | --- | --- |
-| RAT-PAC 2 | `rat-pac/ratpac-two` @ `4.3.0` (2026-09-18) |
+| RAT-PAC 2 | `rat-pac/ratpac-two` @ `4.4.0` (2026-10-11) |
 | Geant4 | 11.4.1, built with Qt6 visualization enabled |
 | ROOT | 6.40.00 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
@@ -310,7 +311,7 @@ nix develop
 When it's ready you'll see:
 
 ```
-Environment Ready: RAT-PAC 4.3.0 + Geant4 11.4.1 + ROOT 6.40.00
+Environment Ready: RAT-PAC 4.4.0 + Geant4 11.4.1 + ROOT 6.40.00
 ```
 
 You're now in a Bash shell with `rat`, `root`, `geant4-config`, and the Python
@@ -378,7 +379,7 @@ nix flake show
 Inside `nix develop`:
 
 ```bash
-which rat            # → /nix/store/…-ratpac-two-4.3.0/bin/rat
+which rat            # → /nix/store/…-ratpac-two-4.4.0/bin/rat
 rat -h               # prints the RAT usage/options block
 root-config --version    # → 6.40.00
 geant4-config --version  # → 11.4.1
@@ -433,7 +434,7 @@ nix flake metadata
 nix flake update
 ```
 
-`ratpac-src` is pinned to the **`4.3.0` tag** in `flake.nix`, not to a branch, so
+`ratpac-src` is pinned to the **`4.4.0` tag** in `flake.nix`, not to a branch, so
 `nix flake update` will *not* move RAT-PAC. That's deliberate: the `postPatch`
 section of `flake.nix` carries a workaround for an upstream bug, and a surprise
 RAT-PAC bump is the most likely way to break this environment.
@@ -452,7 +453,7 @@ nix build          # patch guards will flag any workaround that no longer applie
 **11.3.2**. nixpkgs `nixos-26.05` ships **11.4.1**, which clears that floor, so
 this branch moves both at once.
 
-Geant4 was the easy part. Three other things had to change.
+Geant4 was the easy part. Three other things changed.
 
 ### Qt5 → Qt6
 
@@ -476,18 +477,38 @@ exercised on macOS. The Linux/WSLg path in `flake.nix` (`QT_QPA_PLATFORM=wayland
 `G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`) was written for Qt5 and has not been re-checked
 under Qt6.
 
-### A Darwin-only linker flag
+### RAT-PAC 4.3.0 → 4.4.0: libRATEvent is gone
 
-RAT-PAC 4.3.0 does not link on macOS without this, added to `cmakeFlags` and
-gated on Darwin:
+This branch first pinned 4.3.0, which does not link on macOS. `libRATEvent`, a
+slimmed-down sibling of `libRATPAC`, had four undefined symbols
+(`RAT::PhysicsList`, `RAT::DetectorConstruction`, and `RAT::TransitTimeCalculator`'s
+constructor and destructor) whose definitions live only in `libRATPAC`. Linux's
+linker leaves undefined symbols in a shared library to load time; Apple's
+refuses them. The branch got past it with a Darwin-only
+`-Wl,-undefined,dynamic_lookup` in `cmakeFlags`.
 
-```
--DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup
-```
+Upstream hit the same failure on a Mac and fixed it in 4.4.0: the CMake
+refactor ([#443](https://github.com/rat-pac/ratpac-two/pull/443)) and then
+[#450](https://github.com/rat-pac/ratpac-two/pull/450) deleted `libRATEvent`
+outright. The flag is gone with it, and `cmakeFlags` is now the same on both
+platforms.
 
-It is a workaround for an upstream bug, not a fix, and it has a caveat worth
-understanding before you rely on this branch — see
-[Known issue: libRATEvent on macOS](#known-issue-libratevent-on-macos).
+What that means if you build an experiment against this environment:
+
+- **Linking `RATEvent` now fails**, because there is no `libRATEvent` to find.
+  Drop it from `target_link_libraries`; `RATPAC` has always contained
+  everything `RATEvent` did.
+- **The rest of the CMake interface still works.** 4.4.0's `RatpacConfig.cmake`
+  adds a `Ratpac::RATPAC` target but keeps the old `RATROOT`, `RATSHARE`,
+  include-directory and link-directory settings, so `find_package(Ratpac)` plus
+  a bare `RATPAC` link still resolves. Headers still install to
+  `$RATROOT/include`.
+- **Optical output can differ from 4.3.0.**
+  [#447](https://github.com/rat-pac/ratpac-two/pull/447) changes how the
+  Cherenkov, scintillation-waveform and WLS code read their property tables, to
+  handle single-value vectors under Geant4 11.4, and lengthens reemission-time
+  sampling ("from 3sigma to 30, consistent with scintillation timing
+  sampling"), so timing results may not match a 4.3.0 run exactly.
 
 ### Two `postPatch` fixups deleted
 
@@ -505,15 +526,33 @@ rewrite correct code:
 
 ### What has and hasn't been checked
 
-Verified on aarch64-darwin: the environment builds, `nix develop` reports
-`RAT-PAC 4.3.0 + Geant4 11.4.1 + ROOT 6.40.00`, and
-`macros/examples/electron.mac` cut to 50 events runs to completion (50/50
-triggered) with a readable `output.ntuple.root`.
+Verified on aarch64-darwin with 4.4.0:
+
+- the environment builds with no platform-specific `cmakeFlags`, and
+  `nix develop` reports `RAT-PAC 4.4.0 + Geant4 11.4.1 + ROOT 6.40.00`;
+- `rat -N 50 $RATSHARE/macros/examples/electron.mac` runs 50/50 triggered, and
+  the ntuple reads back in ROOT with mean `mcpecount` 15.8, against 14.5 for
+  the same 50 events on 4.3.0 (a sanity check at this statistics, not a physics
+  comparison);
+- a minimal downstream CMake project using `find_package(Ratpac)` and a bare
+  `RATPAC` link compiles, links and runs.
 
 Not checked: **Linux at all**, the Qt6 viewer, `nix develop .#geant4`, and any
 downstream experiment code compiled against ROOT 6.40. The ROOT 6.36 → 6.40 jump
 caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
 it.
+
+Each run also prints 19 `mat219` warnings, one per single-value
+`SCINTWAVEFORM*`, `REEMITWAVEFORM*` or `SCINTMOD*` table in RAT's material
+database (a single decay time is stored as a one-entry vector). The same 19
+appear on 4.3.0 and 4.4.0. They are warnings, not errors; reading
+one-entry tables like these correctly under Geant4 11.4 is what #447 fixed:
+
+```
+*** G4Exception : mat219
+      issued by : G4MaterialPropertiesTable::AddProperty()
+AddProperty warning. A material property vector must have more than one value.
+```
 
 One pre-existing startup warning is unchanged from `main` and is not a
 regression:
@@ -532,130 +571,6 @@ git checkout flake.lock
 Keeping `flake.lock` committed is what makes this reproducible — don't delete it.
 
 ---
-
-## Known issue: libRATEvent on macOS
-
-**Short version:** `libRATEvent` is incomplete upstream. On macOS the build
-fails outright; the flag above papers over it. It does not affect `rat`,
-`libRATPAC`, or any simulation you run, and if you read RAT output with
-`uproot` — as everything in this group currently does — it does not affect you
-at all.
-
-### Symptom
-
-Without the flag, the build dies at 80% with four undefined symbols:
-
-```
-Undefined symbols for architecture arm64:
-  "RAT::PhysicsList::PhysicsList()", referenced from:
-      RAT::DSReader::BuildGeometry() in DSReader.cc.o
-  "RAT::DetectorConstruction::GetDetectorConstruction()", referenced from:
-      RAT::DSReader::BuildGeometry() in DSReader.cc.o
-  "RAT::TransitTimeCalculator::TransitTimeCalculator(...)", referenced from:
-      ROOT::new_RATcLcLTransitTimeCalculator(void*) in G__RATDict.cxx.o
-  "RAT::TransitTimeCalculator::~TransitTimeCalculator()", referenced from:
-      ROOT::delete_RATcLcLTransitTimeCalculator(void*) in G__RATDict.cxx.o
-```
-
-Note the two `referenced from` sources. There are **two independent causes**.
-
-### Cause 1 — a source file that reaches outside its module
-
-`src/CMakeLists.txt:68` builds `RATEvent` from a hand-picked source list: DB,
-DS, IO, plus `core/src/Log.cc` and `util/src/ReadFile.cc`. One of those,
-`io/src/DSReader.cc:60`, starts a Geant4 run manager:
-
-```cpp
-runManager->SetUserInitialization(new PhysicsList());
-runManager->SetUserInitialization(DetectorConstruction::GetDetectorConstruction());
-```
-
-`PhysicsList` is in `src/physics`, `DetectorConstruction` in `src/geo`. Neither
-module is in RATEvent's sources or its link line (`src/CMakeLists.txt:87` lists
-only `${Geant4_LIBRARIES} ${ROOT_LIBRARIES} RATDict stlplus`).
-
-### Cause 2 — one global ROOT dictionary for a deliberately partial library
-
-`src/CMakeLists.txt:30` collects `RATDICT_HEADERS` from a **global property**
-that every subdirectory appends to, generates a single `G__RATDict.cxx` from all
-of them, and wraps it in an OBJECT library. `src/util/CMakeLists.txt:37`
-registers `RAT/TransitTimeCalculator.hh`, so the dictionary emits ctor/dtor
-wrappers for it. RATEvent links `RATDict` but compiles only
-`util/src/ReadFile.cc` from `src/util` — not `util/src/TransitTimeCalculator.cc`.
-Because `RATDict` is an OBJECT library, its objects are copied wholesale into
-every consumer, so the unused stubs come too.
-
-This is the deeper of the two problems: a partial library cannot link an
-all-headers dictionary, and it will keep producing this class of breakage as
-more classes get registered.
-
-### Why only macOS
-
-Linux's `ld` permits undefined symbols when linking a shared object and leaves
-them to the dynamic loader. Apple's linker defaults to `-undefined error` for a
-dylib. Same code, different default — which is why the cluster builds this
-untouched and why **the flag is `isDarwin`-gated and never applies on Linux**.
-
-A clean Linux build therefore says nothing about whether the workaround is
-sound.
-
-### What the flag does, and what it does not
-
-It defers the four symbols to load time, where `libRATPAC` supplies them:
-
-```
-$ nm -u libRATEvent.so | c++filt      # undefined here
-RAT::PhysicsList::PhysicsList()
-RAT::DetectorConstruction::GetDetectorConstruction()
-RAT::TransitTimeCalculator::TransitTimeCalculator(...)
-RAT::TransitTimeCalculator::~TransitTimeCalculator()
-
-$ nm -g libRATPAC.so | c++filt        # defined (T) here
-000...223d54 T RAT::PhysicsList::PhysicsList()
-000...16c208 T RAT::DetectorConstruction::GetDetectorConstruction()
-000...273248 T RAT::TransitTimeCalculator::TransitTimeCalculator(...)
-```
-
-In practice the two libraries load together and it resolves — a test run
-initialises `TransitTimeCalculator` without complaint. **Loaded on its own**,
-calling `DSReader::BuildGeometry()` or constructing a `TransitTimeCalculator`
-would abort at run time instead of failing at build time.
-
-That standalone case is the entire exposure, and it is not macOS-specific: on
-Linux the same call would fail as an unresolved-symbol error at run time. Only
-the *build failure* is a Mac thing; the incompleteness is everyone's.
-
-### Does it matter here?
-
-Not for current work. Nothing in this group's `python/` or `C++/` trees
-references `libRATEvent`, `DSReader`, `RAT::DS`, or `gSystem.Load`. ROOT output
-is read with `uproot`, which parses the file format directly and never loads a
-RAT library or dictionary. Most macros write `outntuple` (flat ntuples) anyway.
-
-It would matter if someone loads `libRATEvent` in a ROOT session to read DS
-files without the full simulation — which is exactly what that library exists
-for.
-
-### How it should actually be fixed
-
-Not by patching `target_link_libraries(RATEvent ...)` to add `geo`, `physics`
-and `util`. That works, but those modules pull in most of the tree
-transitively, so RATEvent converges on `libRATPAC` and stops being the slim
-reader it exists to be — and a patch that rewrites upstream CMake is far more
-fragile across version bumps than a linker flag.
-
-Upstream, two independent changes:
-
-1. **Move `DSReader::BuildGeometry()`** out of `io/src/DSReader.cc` into a
-   translation unit only `RATPAC` compiles. It is the only thing dragging
-   `PhysicsList`/`DetectorConstruction` into a DB/DS/IO library, and geometry
-   construction does not belong in a file reader.
-2. **Split the dictionary.** Add a second, smaller dictionary covering just the
-   DS/IO/DB headers and have `RATEvent` link that one instead of the
-   all-headers `RATDict`.
-
-Worth filing against `rat-pac/ratpac-two` rather than carrying here
-indefinitely. (2) has not been prototyped.
 
 ## Troubleshooting
 

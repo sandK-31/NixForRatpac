@@ -7,15 +7,15 @@
     # 26.05 rather than 25.11: it ships Geant4 11.4.1, which is what the
     # RAT-PAC 4.x line requires (find_package(Geant4 11.4 REQUIRED)).
     # It also carries ROOT 6.40.00, up from 6.36.04 on 25.11; that jump turned
-    # out to cost nothing. The two things the channel bump did cost are the
-    # Qt6 switch and the Darwin linker flag, both commented where they apply.
+    # out to cost nothing. What the channel bump did cost is the Qt6 switch,
+    # commented where it applies.
     nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
-    # Tag 4.3.0 (commit 8030824, 2026-09-18), which at the time of writing is
+    # Tag 4.4.0 (commit 346c4cf, 2026-10-11), which at the time of writing is
     # also the head of main. A tag is immutable enough that `nix flake update`
     # cannot move RAT-PAC underneath the postPatch workaround below.
     ratpac-src = {
-      url = "github:rat-pac/ratpac-two/4.3.0";
+      url = "github:rat-pac/ratpac-two/4.4.0";
       flake = false;
     };
   };
@@ -53,7 +53,7 @@
 
         ratpac = pkgs.stdenv.mkDerivation {
           pname = "ratpac-two";
-          version = "4.3.0";
+          version = "4.4.0";
           src = ratpac-src;
 
           nativeBuildInputs = with pkgs; [
@@ -96,20 +96,6 @@
             "-DCMAKE_BUILD_TYPE=Release"
             "-DROOT_DIR=${pkgs.root}/cmake"
             "-DFFTW3_DIR=${fftw3-cmake}/lib/cmake/FFTW3"
-          ] ++ pkgs.lib.optionals isDarwin [
-            # RAT-PAC 4.3.0 does not link libRATEvent against everything it
-            # references: DSReader.cc calls RAT::PhysicsList and
-            # RAT::DetectorConstruction, and the RATDict object library carries
-            # dictionary stubs for classes (RAT::TransitTimeCalculator) whose
-            # implementations live in modules RATEvent omits. Only the full
-            # libRATPAC links those.
-            #
-            # ld on Linux allows undefined symbols in a shared library and
-            # resolves them at load time, so this builds there. macOS requires
-            # every symbol resolved at link time unless told otherwise, so
-            # defer them the same way. libRATEvent is loaded alongside
-            # libRATPAC in practice, which is where they resolve.
-            "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,-undefined,dynamic_lookup"
           ];
 
           # Upstream compatibility fix, guarded by a grep so that if ratpac-src
@@ -203,7 +189,7 @@
               export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
               echo "Environment Ready: ${
-                if withRatpac then "RAT-PAC 4.3.0 + " else ""
+                if withRatpac then "RAT-PAC ${ratpac.version} + " else ""
               }Geant4 $(geant4-config --version) + ROOT $(root-config --version)${
                 if withRatpac then "" else " (no RAT-PAC)"
               }"

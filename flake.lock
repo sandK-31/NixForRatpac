@@ -37,16 +37,16 @@
     "ratpac-src": {
       "flake": false,
       "locked": {
-        "lastModified": 1789743074,
-        "narHash": "sha256-BtWAsTUWBcdK7yBg3O3ugLN4i1saVox/hyuj+/nsTIQ=",
+        "lastModified": 1791743976,
+        "narHash": "sha256-15jpwfAYt8CWWmm5detrq1yNqCqK/BSTRlJnzXuDzAI=",
         "owner": "rat-pac",
         "repo": "ratpac-two",
-        "rev": "8030824034a00e5f1fea32160b4e55cd1cdd8e6a",
+        "rev": "346c4cfe318adc700c9dc6942dee74e68f33ee8c",
         "type": "github"
       },
       "original": {
         "owner": "rat-pac",
-        "ref": "4.3.0",
+        "ref": "4.4.0",
         "repo": "ratpac-two",
         "type": "github"
       }
