@@ -175,7 +175,14 @@
             inherit (pkgs.lib) optionalString;
             # Trailing colon is part of the string, so it disappears along with
             # the path when RAT-PAC is not included.
-            ratpacInc = optionalString withRatpac "${ratpac}/include:";
+            #
+            # include/stlplus is needed because RAT/Log.hh includes
+            # "dprintf.hpp" from there. libRATDict's payload pulls in Log.hh,
+            # and the include paths baked into the dictionary point at the
+            # long-gone build sandbox, so without this cling cannot parse
+            # RAT::DS::Root and DS-reading ROOT macros and PyROOT fail.
+            ratpacInc = optionalString withRatpac
+              "${ratpac}/include:${ratpac}/include/stlplus:";
             ratpacLib = optionalString withRatpac "${ratpac}/lib:";
           in
           # cryEnv goes into both shells: the CRY library is not RAT-PAC

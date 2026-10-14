@@ -406,8 +406,8 @@ This is a ROOT dictionary noise message, not a broken install. If the `usage: ra
 | `RATROOT` | the RAT-PAC store path | — |
 | `RATSHARE` | `$RATROOT/share/RAT` (macros, models, ratdb, python) | — |
 | `PYTHONPATH` | `$RATSHARE/python` (the `rat`, `ratproc`, `rattest` modules) | — |
-| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, ROOT, and Geant4 headers | yes, minus RAT-PAC |
-| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, and Geant4 headers | yes, minus RAT-PAC |
+| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC (with `include/stlplus`), ROOT, and Geant4 headers | yes, minus RAT-PAC |
+| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC (with `include/stlplus`, which cling needs to read RAT's DS classes), and Geant4 headers | yes, minus RAT-PAC |
 | `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs | yes, minus `$RATROOT/lib` |
 | `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` | yes, minus `$RATROOT/lib` |
 | `CRYLIB`, `CRYINCLUDE`, `CRYDATA` | CRY's `lib`, `include/cry` and data directories; RAT's `cry` generator reads `CRYDATA` at run time | yes |
