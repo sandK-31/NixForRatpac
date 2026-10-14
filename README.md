@@ -36,6 +36,7 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 | Geant4 | 11.4.1, built with Qt6 visualization enabled |
 | ROOT | 6.40.00 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
+| CRY | 1.7 (LLNL cosmic-ray showers), built into RAT-PAC as the `cry` generator |
 | Python | 3.x with `numpy`, `ROOT`, `plotly`, `particle` |
 
 **Don't need RAT-PAC?** There's a second shell with everything above *except*
@@ -409,6 +410,7 @@ This is a ROOT dictionary noise message, not a broken install. If the `usage: ra
 | `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, and Geant4 headers | yes, minus RAT-PAC |
 | `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs | yes, minus `$RATROOT/lib` |
 | `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` | yes, minus `$RATROOT/lib` |
+| `CRYLIB`, `CRYINCLUDE`, `CRYDATA` | CRY's `lib`, `include/cry` and data directories; RAT's `cry` generator reads `CRYDATA` at run time | yes |
 | `QT_QPA_PLATFORM` | `cocoa` on macOS, `wayland` on Linux | yes |
 | `SHELL` | the Nix-provided Bash | yes |
 
@@ -524,6 +526,43 @@ rewrite correct code:
 
 `copy-compile-commands` is still needed and still applies.
 
+### CRY added
+
+Unlike the three changes above, this one isn't forced by the move: `main`
+never had CRY either. RAT-PAC builds its `cry` vertex generator only if
+`CRYLIB` is set when CMake configures, and nixpkgs has no CRY package, so
+`flake.nix` now builds CRY 1.7 from the LLNL tarball and sets `CRYLIB`,
+`CRYINCLUDE` and `CRYDATA` in both the RAT-PAC build and the dev shells, the
+same three variables upstream's `ratpac-setup` exports.
+
+`CRYDATA` matters at run time too: `VertexGen_CRY` reads it with `getenv()` when
+the generator is created and segfaults if it's unset. Both shells set it, and
+the `rat` binary also falls back to the packaged data directory when it's
+missing, so a stripped environment can't crash it. Set `CRYDATA` yourself to
+point at other tables.
+
+To use it, swap the generator block in a macro for:
+
+```
+/generator/add combo cry:point:poisson
+/generator/pos/set 0.0 0.0 1000.0    # where the shower plane sits, in mm
+/generator/rate/set 1.0
+```
+
+Shower settings (particle types, altitude 0/2100/11300 m, latitude, date,
+sub-box size) come from `$RATSHARE/ratdb/CRY.ratdb` and can be overridden with
+`/rat/db/set CRY <field> <value>` before `/run/initialize`.
+
+**Keep the sub-box inside your world volume.** The default `subboxLength` is
+10, a 10 m × 10 m plane, so primaries start up to 5 m from `pos` in x and y.
+In a world smaller than that, some start outside it, and RAT doesn't drop
+them. A 20-event test in the Validation geometry (a 4.5 m-radius world) began
+with `start point … is outside the world volume`, then spent 56 CPU-minutes
+printing `GeomSolids1002` / `snxt = 9e+99` warnings, 2 GB of them, and had
+not finished when it was killed. Set
+`/rat/db/set CRY subboxLength 1` (allowed sizes: 1, 3, 10, 30, 100, 300 m) or
+place `pos` so that the whole plane is inside the world.
+
 ### What has and hasn't been checked
 
 Verified on aarch64-darwin with 4.4.0:
@@ -535,9 +574,16 @@ Verified on aarch64-darwin with 4.4.0:
   the same 50 events on 4.3.0 (a sanity check at this statistics, not a physics
   comparison);
 - a minimal downstream CMake project using `find_package(Ratpac)` and a bare
-  `RATPAC` link compiles, links and runs.
+  `RATPAC` link compiles, links and runs;
+- with CRY: configure reports `Compiling with CRY enabled`, `Config.hh` has
+  `CRY_Enabled 1`, and `libRATPAC` links the packaged `libCRY`. Ten events of
+  `/generator/add combo cry:point:poisson` in the Validation geometry (1 m
+  sub-box, sea level) ran at 1.2 s/event and gave 7 μ± at 0.6–13 GeV and
+  3 neutrons at 0.7–23 MeV, all downward-going;
+- `nix develop .#geant4` enters, reports `Geant4 11.4.1 + ROOT 6.40.00 (no
+  RAT-PAC)` and sets the CRY variables. Nothing has been compiled in it yet.
 
-Not checked: **Linux at all**, the Qt6 viewer, `nix develop .#geant4`, and any
+Not checked: **Linux at all** (CRY included), the Qt6 viewer, and any
 downstream experiment code compiled against ROOT 6.40. The ROOT 6.36 → 6.40 jump
 caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
 it.

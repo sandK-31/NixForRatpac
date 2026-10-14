@@ -40,7 +40,52 @@
           particle
         ]);
 
-        ratpac = pkgs.stdenv.mkDerivation {
+        # CRY 1.7, LLNL's cosmic-ray shower generator, behind RAT-PAC's `cry`
+        # vertex generator. nixpkgs does not package it. Laid out the way
+        # upstream's ratpac-setup installs it (shared libCRY, headers under
+        # include/cry), but src/*.cc is compiled directly: the shipped
+        # Makefile has CRLF line endings and only builds a static archive,
+        # which ratpac-setup patches by line number.
+        cry = pkgs.stdenv.mkDerivation {
+          pname = "cry";
+          version = "1.7";
+          src = pkgs.fetchurl {
+            url = "https://nuclear.llnl.gov/simulation/cry_v1.7.tar.gz";
+            hash = "sha256-3O4kKPgcuhE/guDHxC9Nhb/0uFMOWrXILAWb7T5XDCA=";
+          };
+
+          buildPhase = ''
+            runHook preBuild
+            $CXX -O2 -fPIC -shared -Isrc src/*.cc -o libCRY${pkgs.stdenv.hostPlatform.extensions.sharedLibrary} \
+              ${pkgs.lib.optionalString isDarwin "-Wl,-install_name,$out/lib/libCRY.dylib"}
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 -t $out/lib libCRY${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}
+            install -Dm644 -t $out/include/cry src/*.h
+            # Per-altitude tables (0, 2100, 11300 m), read at run time from $CRYDATA.
+            install -Dm644 -t $out/share/cry/data data/*
+            runHook postInstall
+          '';
+
+          meta = {
+            description = "Cosmic-ray shower generator (LLNL)";
+            homepage = "https://nuclear.llnl.gov/simulation/";
+          };
+        };
+
+        # The variables ratpac-setup's env.sh exports. RAT-PAC's CMake turns
+        # CRY on only if CRYLIB is set when it configures, and VertexGen_CRY
+        # reads CRYDATA with getenv() at run time.
+        cryEnv = {
+          CRYLIB = "${cry}/lib";
+          CRYINCLUDE = "${cry}/include/cry";
+          CRYDATA = "${cry}/share/cry/data";
+        };
+
+        ratpac = pkgs.stdenv.mkDerivation (cryEnv // {
           pname = "ratpac-two";
           version = "4.4.0";
           src = ratpac-src;
@@ -55,6 +100,7 @@
             geant4custom
             pkgs.root
             pythonEnv
+            cry
           ] ++ (with pkgs; [
             fftw
             fftwFloat
@@ -86,6 +132,12 @@
             "-DROOT_DIR=${pkgs.root}/cmake"
           ];
 
+          # The binaries are already wrapped by wrapQtAppsHook (propagated by
+          # geant4). Without CRYDATA, VertexGen_CRY segfaults in its
+          # constructor, so give rat a default for when it runs outside the
+          # dev shell's environment; a CRYDATA already set still wins.
+          qtWrapperArgs = [ "--set-default" "CRYDATA" cryEnv.CRYDATA ];
+
           # Upstream compatibility fix, guarded by a grep so that if ratpac-src
           # moves and it stops applying, the build fails loudly here instead of
           # the sed silently matching nothing.
@@ -113,7 +165,7 @@
             # Without this, `nix run` looks for bin/ratpac-two and fails.
             mainProgram = "rat";
           };
-        };
+        });
 
         # Both dev shells are built from this one function so they cannot drift
         # apart. withRatpac = false drops RAT-PAC from buildInputs entirely, so
@@ -126,7 +178,10 @@
             ratpacInc = optionalString withRatpac "${ratpac}/include:";
             ratpacLib = optionalString withRatpac "${ratpac}/lib:";
           in
-          pkgs.mkShell {
+          # cryEnv goes into both shells: the CRY library is not RAT-PAC
+          # specific, and a RAT-PAC built from source inside the shell picks
+          # it up the same way the package above does.
+          pkgs.mkShell (cryEnv // {
             # Order matters: it sets PATH precedence. Keep RAT-PAC in the same
             # slot it occupied before this shell was made optional.
             buildInputs = [
@@ -182,7 +237,7 @@
                 if withRatpac then "" else " (no RAT-PAC)"
               }"
             '';
-          };
+          });
 
       in
       {
