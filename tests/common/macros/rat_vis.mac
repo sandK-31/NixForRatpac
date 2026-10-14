@@ -1,0 +1,33 @@
+# The RAT-PAC Geant4 viewer (run with `rat -g`): the Validation detector and
+# three 50 MeV electrons. Optical photons are filtered out of the drawing so
+# the tracks stay visible. The echo at the end tells the harness the macro
+# finished and the window should be up. RAT registers only the OpenGL drivers
+# (no TSG), so a bare /vis/open fails: name OGLSQt, as upstream's macros do.
+/rat/db/set DETECTOR experiment "Validation"
+/rat/db/set DETECTOR geo_file "Validation/Valid.geo"
+
+/run/initialize
+
+/rat/proc count
+/rat/procset update 1
+
+/vis/open OGLSQt
+/vis/viewer/set/autoRefresh false
+/vis/drawVolume
+/vis/viewer/set/upVector 0 0 1
+/vis/viewer/set/viewpointThetaPhi 60 30 deg
+/vis/viewer/set/style surface
+/vis/viewer/addCutawayPlane 0 0 0 cm 1 0 0
+/vis/scene/add/trajectories smooth
+/vis/filtering/trajectories/create/particleFilter
+/vis/filtering/trajectories/particleFilter-0/add opticalphoton
+/vis/filtering/trajectories/particleFilter-0/invert true
+/vis/scene/endOfEventAction accumulate
+/vis/viewer/set/autoRefresh true
+
+/generator/add combo gun:point
+/generator/vtx/set e- 0.0 0.0 1.0 50.0
+/generator/pos/set 0.0 0.0 0.0
+
+/run/beamOn 3
+/control/echo NFR_VIS_MACRO_DONE

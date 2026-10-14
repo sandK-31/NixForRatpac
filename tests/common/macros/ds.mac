@@ -1,0 +1,22 @@
+# Five 2.5 MeV electrons in the Validation detector, written as a full
+# RAT::DS file (outroot) so the test can read it back through RAT's dictionary.
+/glg4debug/glg4param omit_muon_processes 1.0
+/glg4debug/glg4param omit_hadronic_processes 1.0
+
+/rat/db/set DETECTOR experiment "Validation"
+/rat/db/set DETECTOR geo_file "Validation/Valid.geo"
+
+/run/initialize
+
+/rat/proc splitevdaq
+/rat/procset trigger_threshold 5.0
+/rat/proc count
+/rat/procset update 1
+/rat/proclast outroot
+
+/generator/add combo gun:point:poisson
+/generator/vtx/set e- 0.0 0.0 0.0 2.5
+/generator/pos/set 0.0 0.0 0.0
+/generator/rate/set 2.0
+
+/run/beamOn 5

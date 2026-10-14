@@ -14,3 +14,6 @@ rat.*.log
 .DS_Store
 *.swp
 compile_commands.json
+
+# Test suite output (tests/<os>/run-tests.sh)
+tests/results/

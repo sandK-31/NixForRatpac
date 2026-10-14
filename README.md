@@ -397,6 +397,17 @@ Error in cling::AutoLoadingVisitor::InsertIntoAutoLoadingState:
 This is a ROOT dictionary noise message, not a broken install. If the `usage: rat
 [options] …` block follows it, you're fine.
 
+**The full check** is one command, run from the clone (not inside `nix develop`):
+
+```bash
+tests/macos/run-tests.sh      # or tests/linux/…, or tests/windows/… inside WSL
+```
+
+It builds everything, then tests both shells, RAT-PAC (including its own
+physics tests), CRY, ROOT, a standalone Geant4 build, and the Geant4, RAT-PAC
+and ROOT windows, asking you what you saw at the end. See
+[tests/README.md](tests/README.md).
+
 ---
 
 ## What the shell sets up for you
@@ -662,6 +673,13 @@ nix build --out-link ./result   # ./result is a GC root
 The flake sets `QT_QPA_PLATFORM=wayland` and `DISPLAY=:0`. On an X11-only session
 try `QT_QPA_PLATFORM=xcb nix develop`.
 
+**`rat -g`: `parameter value (TSG) is not listed` … `Illegal parameter (0) </vis/open>`**
+RAT registers its own short list of Geant4 drivers (the OpenGL Qt ones, no TSG),
+so a bare `/vis/open`, which asks for Geant4's default TSG driver, fails and
+stops the macro. Name the driver, as RAT's own `macros/visualizations/*.mac`
+do: `/vis/open OGLSQt`. Once the viewer is up, RAT's output goes to its console
+and to `rat.<host>.<pid>.log`, not the terminal.
+
 **Windows: a window never draws and its title says `[WARN: COPY MODE]`**
 This is a WSLg bug, not a RAT-PAC or Nix one. The digitizer — or any other GUI:
 the Geant4 Qt viewer, a ROOT canvas, even `xeyes` — starts, gets a taskbar entry
@@ -717,4 +735,5 @@ also clears it, at the cost of everything you had running.
 flake.nix    environment + RAT-PAC package definition
 flake.lock   pinned input revisions — keep this committed
 README.md    this file
+tests/       one-command test suite per platform (tests/README.md)
 ```
