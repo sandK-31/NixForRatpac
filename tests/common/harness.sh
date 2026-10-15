@@ -30,7 +30,7 @@ both dev shells, RAT-PAC, CRY, ROOT, Geant4 and the visualizers.
   --no-interactive  don't ask you to look at windows (default when not
                     run from a terminal)
   --qpa <plugin>    run the GUI tests with QT_QPA_PLATFORM=<plugin>,
-                    e.g. xcb on an X11-only Linux desktop
+                    e.g. xcb to try X11 instead of Wayland
   -h, --help        this text
 
 Results go to tests/results/$NFR_OS-<date>/, plus a .tar.gz of the logs and
@@ -166,6 +166,14 @@ main() {
     shift
   done
 
+  # Each test starts its own `nix develop`; started from inside one, the
+  # outer shell's variables (RATROOT, PATH, include paths) leak into every
+  # test, the Geant4-only shell included.
+  if [ -n "${IN_NIX_SHELL:-}" ]; then
+    echo "This terminal is inside 'nix develop'. Type 'exit', then run the suite again." >&2
+    exit 2
+  fi
+
   NFR_RESULTS="$NFR_REPO/tests/results/$NFR_OS-$(date +%Y%m%d-%H%M%S)"
   NFR_LOGS="$NFR_RESULTS/logs" NFR_WORK="$NFR_RESULTS/work" NFR_ART="$NFR_RESULTS/screenshots"
   mkdir -p "$NFR_LOGS" "$NFR_WORK" "$NFR_ART" || exit 1
@@ -174,6 +182,8 @@ main() {
     NFR_QUICK NFR_INTERACTIVE NFR_QPA_OVERRIDE \
     NFR_EXPECT_RAT NFR_EXPECT_G4 NFR_EXPECT_ROOT
   exec 3>&1
+  # Ctrl-C still leaves a summary and a tarball of what ran.
+  trap 'echo; echo "  Interrupted."; summarise; exit 130' INT
 
   printf '%sNixForRatpac test suite (%s)%s\n' "$C_HEAD" "$NFR_OS" "$C_OFF"
   echo "Repo:    $NFR_REPO"

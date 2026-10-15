@@ -15,7 +15,9 @@ COMMON=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 if [ "$NFR_OS" = macos ]; then
   SO=dylib LIBVAR=DYLD_LIBRARY_PATH EXPECT_QPA=cocoa
 else
-  SO=so LIBVAR=LD_LIBRARY_PATH EXPECT_QPA=wayland
+  # The shell picks wayland when there is a compositor, xcb otherwise.
+  SO=so LIBVAR=LD_LIBRARY_PATH EXPECT_QPA=xcb
+  [ -n "${WAYLAND_DISPLAY:-}" ] && EXPECT_QPA=wayland
 fi
 
 # on_path <list> <entry> -- is <entry> one of the colon-separated <list>?
@@ -58,7 +60,7 @@ t_versions() {
 }
 
 t_env() {
-  env | grep -E '^(RAT|CRY|ROOT_INCLUDE|CPLUS_INCLUDE|QT_|G4VIS|DISPLAY|WAYLAND|PYTHONPATH|LD_LIBRARY|DYLD_LIBRARY)' | sort
+  env | grep -E '^(RAT|CRY|ROOT_INCLUDE|CPLUS_INCLUDE|QT_|G4VIS|DISPLAY|WAYLAND|PYTHONPATH|LD_LIBRARY|DYLD_LIBRARY|__EGL|LIBGL|GBM|GLIBC_TUNABLES)' | sort
   echo
   check RATROOT test -d "${RATROOT:-/nonexistent}/lib"
   check RATSHARE test -d "${RATSHARE:-/nonexistent}/ratdb"
@@ -70,8 +72,21 @@ t_env() {
   check CRYINCLUDE test -f "${CRYINCLUDE:-/nonexistent}/CRYGenerator.h"
   check CRYDATA test -f "${CRYDATA:-/nonexistent}/cosmics_0.data"
   check "QT_QPA_PLATFORM=$EXPECT_QPA" test "${QT_QPA_PLATFORM:-}" = "$EXPECT_QPA"
+  local extra=''
+  if [ "$NFR_OS" != macos ]; then
+    check GLIBC_TUNABLES:optional_static_tls \
+      test -n "$(echo "${GLIBC_TUNABLES:-}" | grep optional_static_tls)"
+    # Off NixOS the shell supplies Mesa; on NixOS the system's driver is used.
+    if [ ! -d /run/opengl-driver/lib ]; then
+      check __EGL_VENDOR_LIBRARY_FILENAMES test -f "${__EGL_VENDOR_LIBRARY_FILENAMES:-/nonexistent}"
+      check LIBGL_DRIVERS_PATH test -d "${LIBGL_DRIVERS_PATH:-/nonexistent}"
+      extra=", Mesa for OpenGL"
+    else
+      extra=", NixOS OpenGL driver"
+    fi
+  fi
   [ -n "$BAD" ] && { note "wrong or missing:$BAD"; return 1; }
-  note "RATROOT, RATSHARE, CRY*, include and library paths all set"
+  note "RATROOT, RATSHARE, CRY*, include and library paths all set$extra"
 }
 
 t_g4data() {
@@ -274,6 +289,11 @@ t_g4_batch() {
 }
 
 # ------------------------------------------------------------------------ main
+
+# Ctrl-C: stop after the running test instead of finishing the group (rat
+# catches SIGINT and exits normally, so bash would carry on). The harness
+# then writes the summary.
+trap 'exit 130' INT
 
 case ${1:-} in
   ratpac)

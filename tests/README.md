@@ -20,6 +20,10 @@ tests/linux/run-tests.sh
 
 On WSL, clone under `~`, not `/mnt/c` (the script warns if you don't).
 
+Start it from a plain terminal, not from inside `nix develop`: the suite
+starts its own shells, and refuses to run inside one because the outer
+shell's variables would leak into every test.
+
 The first run compiles CRY and RAT-PAC and downloads Geant4, ROOT and the
 Geant4 datasets: 20–60 minutes, printing progress every minute. After that a
 full run takes about 10 minutes, most of it RAT-PAC's own physics tests
@@ -30,7 +34,11 @@ full run takes about 10 minutes, most of it RAT-PAC's own physics tests
 From a terminal, the suite ends by opening two windows and asking what you
 saw: the RAT-PAC viewer, then a ROOT canvas. Look, close the window, answer
 `y` or `n`; after an `n` it asks for one line on what was wrong, and that
-line goes into the results.
+line goes into the results. If no window appears at all, press Enter instead
+of waiting; the suite closes the program and asks the question.
+
+Ctrl-C stops the run but still writes the summary and the tarball for the
+tests that finished.
 
 These questions are the only check of what reaches your screen. The
 automated GUI tests screenshot the window from inside the program, which
@@ -44,7 +52,7 @@ still never reach Windows (the `[WARN: COPY MODE]` bug in the main README).
 | `--quick` | skip the `rattest` physics comparisons (~6 min) |
 | `--no-gui` | skip everything that opens a window |
 | `--no-interactive` | don't ask what you saw (automatic when not run from a terminal) |
-| `--qpa xcb` | run the GUI tests with `QT_QPA_PLATFORM=xcb`, for an X11-only Linux desktop |
+| `--qpa xcb` | run the GUI tests with `QT_QPA_PLATFORM=xcb`, to try X11 where the shell would pick Wayland |
 
 ## Results
 
@@ -78,9 +86,9 @@ is `unstable`. Then per platform:
 - *macOS*: version, Nix system (`x86_64-darwin` fails: nixpkgs 26.05 marks
   `arrow-cpp` broken there and `plotly` needs it), whether there is a desktop
   session for the GUI tests.
-- *Linux*: distribution; what desktop you have. The dev shell forces
-  `QT_QPA_PLATFORM=wayland` and `DISPLAY=:0`, so an X11-only desktop or a
-  `DISPLAY` other than `:0` is flagged before the GUI tests run.
+- *Linux*: distribution; what desktop you have, which Qt platform (Wayland or
+  X11) and OpenGL driver the GUI tests will use, and a warning for NVIDIA's
+  proprietary driver, which the shell's Mesa can't use.
 - *Windows*: that it's inside WSL, the WSL version, systemd, the repo isn't on
   `/mnt/c`, free space for `/nix`, WSLg is up, and `weston.log`'s
   `use_gfxredir` (0 means the COPY MODE bug is active and windows will be
@@ -93,7 +101,7 @@ is `unstable`. Then per platform:
 | Test | Checks |
 | --- | --- |
 | Versions | `rat` is RAT-PAC 4.4.0 from the store; Geant4 11.4.1; ROOT 6.40.00 |
-| Environment variables | `RATROOT`, `RATSHARE`, `PYTHONPATH`, library and include paths (including `include/stlplus`), `CRY*`, `QT_QPA_PLATFORM` |
+| Environment variables | `RATROOT`, `RATSHARE`, `PYTHONPATH`, library and include paths (including `include/stlplus`), `CRY*`, `QT_QPA_PLATFORM`; on Linux also `GLIBC_TUNABLES` and, off NixOS, the Mesa OpenGL variables |
 | Geant4 datasets | every `G4*DATA` variable points at a real directory |
 | Qt platform plugin | the plugin `QT_QPA_PLATFORM` names is on `QT_PLUGIN_PATH` |
 | Python packages | `numpy`, `plotly`, `particle`, `ROOT` import |
