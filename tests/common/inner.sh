@@ -60,7 +60,7 @@ t_versions() {
 }
 
 t_env() {
-  env | grep -E '^(RAT|CRY|ROOT_INCLUDE|CPLUS_INCLUDE|QT_|G4VIS|DISPLAY|WAYLAND|PYTHONPATH|LD_LIBRARY|DYLD_LIBRARY|__EGL|LIBGL|GBM|GLIBC_TUNABLES)' | sort
+  env | grep -E '^(RAT|CRY|ROOT_INCLUDE|CPLUS_INCLUDE|QT_|G4VIS|DISPLAY|WAYLAND|PYTHONPATH|LD_LIBRARY|DYLD_LIBRARY|__EGL|LIBGL|GBM)' | sort
   echo
   check RATROOT test -d "${RATROOT:-/nonexistent}/lib"
   check RATSHARE test -d "${RATSHARE:-/nonexistent}/ratdb"
@@ -74,8 +74,10 @@ t_env() {
   check "QT_QPA_PLATFORM=$EXPECT_QPA" test "${QT_QPA_PLATFORM:-}" = "$EXPECT_QPA"
   local extra=''
   if [ "$NFR_OS" != macos ]; then
-    check GLIBC_TUNABLES:optional_static_tls \
-      test -n "$(echo "${GLIBC_TUNABLES:-}" | grep optional_static_tls)"
+    # Python loads Geant4 after startup, which needs this TLS model
+    # (geant4custom in flake.nix).
+    check geant4_tls_model=global-dynamic \
+      grep -q 'geant4_tls_model="global-dynamic"' "$(command -v geant4-config)"
     # Off NixOS the shell supplies Mesa; on NixOS the system's driver is used.
     if [ ! -d /run/opengl-driver/lib ]; then
       check __EGL_VENDOR_LIBRARY_FILENAMES test -f "${__EGL_VENDOR_LIBRARY_FILENAMES:-/nonexistent}"

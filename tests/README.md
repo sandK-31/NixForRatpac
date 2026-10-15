@@ -101,7 +101,7 @@ is `unstable`. Then per platform:
 | Test | Checks |
 | --- | --- |
 | Versions | `rat` is RAT-PAC 4.4.0 from the store; Geant4 11.4.1; ROOT 6.40.00 |
-| Environment variables | `RATROOT`, `RATSHARE`, `PYTHONPATH`, library and include paths (including `include/stlplus`), `CRY*`, `QT_QPA_PLATFORM`; on Linux also `GLIBC_TUNABLES` and, off NixOS, the Mesa OpenGL variables |
+| Environment variables | `RATROOT`, `RATSHARE`, `PYTHONPATH`, library and include paths (including `include/stlplus`), `CRY*`, `QT_QPA_PLATFORM`; on Linux also that Geant4 was built with the `global-dynamic` TLS model and, off NixOS, the Mesa OpenGL variables |
 | Geant4 datasets | every `G4*DATA` variable points at a real directory |
 | Qt platform plugin | the plugin `QT_QPA_PLATFORM` names is on `QT_PLUGIN_PATH` |
 | Python packages | `numpy`, `plotly`, `particle`, `ROOT` import |

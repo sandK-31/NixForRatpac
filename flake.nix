@@ -26,7 +26,17 @@
         pkgs = nixpkgs.legacyPackages.${system};
         isDarwin = pkgs.stdenv.isDarwin;
 
-        geant4custom = pkgs.geant4.override { enableQt = true; };
+        # On Linux, Geant4's default TLS model is initial-exec, which only
+        # works for libraries present at program start. Python dlopens
+        # RAT-PAC, and with it Geant4, after ROOT, so PyROOT and rattest
+        # die with "libstdc++.so: cannot allocate memory in static TLS
+        # block". nixpkgs sets global-dynamic only for its enablePython
+        # build. RAT-PAC inherits the model through Geant4_USE_FILE. Linux
+        # only: macOS doesn't need it, and the Darwin build stays unchanged.
+        geant4custom = (pkgs.geant4.override { enableQt = true; }).overrideAttrs (old:
+          pkgs.lib.optionalAttrs (!isDarwin) {
+            cmakeFlags = old.cmakeFlags ++ [ "-DGEANT4_BUILD_TLS_MODEL=global-dynamic" ];
+          });
         geant4Datasets = with pkgs.geant4.data; [
           G4ABLA G4INCL G4PhotonEvaporation G4RealSurface G4EMLOW 
           G4NDL G4PII G4SAIDDATA G4ENSDFSTATE G4PARTICLEXS 
@@ -238,14 +248,6 @@
                   export LD_LIBRARY_PATH="$NFR_GL_LIB''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
                   unset NFR_GL_LIB
                 fi
-
-                # numpy, through OpenBLAS, loads gfortran's copy of
-                # libstdc++; cling then dlopens gcc's copy by path for
-                # libRATDict, and the second copy finds glibc's spare static
-                # TLS used up ("cannot allocate memory in static TLS block"),
-                # so PyROOT can't read RAT files and rattest fails. Reserve
-                # more of it.
-                export GLIBC_TUNABLES="''${GLIBC_TUNABLES:+$GLIBC_TUNABLES:}glibc.rtld.optional_static_tls=16384"
               '' else ''
                 export QT_QPA_PLATFORM=cocoa
               ''}

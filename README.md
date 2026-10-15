@@ -33,7 +33,7 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 | Component | Version (as pinned) |
 | --- | --- |
 | RAT-PAC 2 | `rat-pac/ratpac-two` @ `4.4.0` (2026-10-11) |
-| Geant4 | 11.4.1, built with Qt6 visualization enabled |
+| Geant4 | 11.4.1, built with Qt6 visualization enabled (and, on Linux, the `global-dynamic` TLS model so Python can load it) |
 | ROOT | 6.40.00 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
 | CRY | 1.7 (LLNL cosmic-ray showers), built into RAT-PAC as the `cry` generator |
@@ -424,7 +424,6 @@ and ROOT windows, asking you what you saw at the end. See
 | `CRYLIB`, `CRYINCLUDE`, `CRYDATA` | CRY's `lib`, `include/cry` and data directories; RAT's `cry` generator reads `CRYDATA` at run time | yes |
 | `QT_QPA_PLATFORM` | `cocoa` on macOS; on Linux `wayland` when there's a Wayland compositor (WSLg has one), `xcb` otherwise. A value you set before `nix develop` wins | yes |
 | `__EGL_VENDOR_LIBRARY_FILENAMES`, `LIBGL_DRIVERS_PATH`, `GBM_BACKENDS_PATH` | Linux other than NixOS: nixpkgs' Mesa, whose `lib` (and WSL's `/usr/lib/wsl/lib`) also goes on `LD_LIBRARY_PATH`. Nix-built OpenGL programs otherwise find no driver | yes |
-| `GLIBC_TUNABLES` | Linux: `glibc.rtld.optional_static_tls=16384`, so PyROOT can load RAT's dictionary (see Troubleshooting) | yes |
 | `SHELL` | the Nix-provided Bash | yes |
 
 The Geant4 dataset variables (`G4LEDATA`, `G4NEUTRONHPDATA`, …) are set
@@ -682,11 +681,15 @@ can't drive NVIDIA's proprietary driver. To try X11 instead of Wayland, set
 the platform before entering the shell: `QT_QPA_PLATFORM=xcb nix develop`.
 
 **PyROOT on Linux: `cannot allocate memory in static TLS block` … `failure loading library libRATDict.so`**
-numpy, through OpenBLAS, loads gfortran's copy of `libstdc++`; cling then loads
-gcc's copy by path for RAT's dictionary, and glibc has no spare static TLS left
-for it. The shell sets `GLIBC_TUNABLES=glibc.rtld.optional_static_tls=16384` to
-reserve more. If you see this, check that the variable survived into your
-process.
+Geant4's default thread-local storage model, `initial-exec`, only works for
+libraries loaded when a program starts. Python loads RAT-PAC, and with it
+Geant4, later: when you `import rat`, read a RAT file, or run `rattest`. So the
+flake builds Geant4 with `-DGEANT4_BUILD_TLS_MODEL=global-dynamic` on Linux,
+as nixpkgs does for its Python-enabled Geant4, and RAT-PAC picks the model up
+from Geant4's CMake config. If you still see this error, your build predates
+that change: `git pull` and enter `nix develop` again, which rebuilds Geant4 and
+RAT-PAC once. `geant4-config` should then contain
+`geant4_tls_model="global-dynamic"`.
 
 **`rat -g`: `parameter value (TSG) is not listed` … `Illegal parameter (0) </vis/open>`**
 RAT registers its own short list of Geant4 drivers (the OpenGL Qt ones, no TSG),
