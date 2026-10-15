@@ -422,7 +422,9 @@ and ROOT windows, asking you what you saw at the end. See
 | `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs | yes, minus `$RATROOT/lib` |
 | `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` | yes, minus `$RATROOT/lib` |
 | `CRYLIB`, `CRYINCLUDE`, `CRYDATA` | CRY's `lib`, `include/cry` and data directories; RAT's `cry` generator reads `CRYDATA` at run time | yes |
-| `QT_QPA_PLATFORM` | `cocoa` on macOS, `wayland` on Linux | yes |
+| `QT_QPA_PLATFORM` | `cocoa` on macOS; on Linux `wayland` when there's a Wayland compositor (WSLg has one), `xcb` otherwise. A value you set before `nix develop` wins | yes |
+| `__EGL_VENDOR_LIBRARY_FILENAMES`, `LIBGL_DRIVERS_PATH`, `GBM_BACKENDS_PATH` | Linux other than NixOS: nixpkgs' Mesa, whose `lib` (and WSL's `/usr/lib/wsl/lib`) also goes on `LD_LIBRARY_PATH`. Nix-built OpenGL programs otherwise find no driver | yes |
+| `GLIBC_TUNABLES` | Linux: `glibc.rtld.optional_static_tls=16384`, so PyROOT can load RAT's dictionary (see Troubleshooting) | yes |
 | `SHELL` | the Nix-provided Bash | yes |
 
 The Geant4 dataset variables (`G4LEDATA`, `G4NEUTRONHPDATA`, …) are set
@@ -485,10 +487,13 @@ So `pkgs.qt5.qtbase` in RAT-PAC's `buildInputs` became `pkgs.qt6.qtbase`. The
 and `dev`), so `QT_PLUGIN_PATH` is built from the package itself, and the plugin
 prefix moved to `lib/qt-6/plugins`.
 
-**This is the part most likely to still be wrong.** The Qt viewer has only been
-exercised on macOS. The Linux/WSLg path in `flake.nix` (`QT_QPA_PLATFORM=wayland`,
-`G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`) was written for Qt5 and has not been re-checked
-under Qt6.
+**This is the part most likely to still be wrong.** The first test-suite run on
+WSL (2026-10-14) found that Nix-built Qt had no OpenGL driver at all off NixOS:
+Qt printed `EGL not available`, the OGLSQt viewer drew nothing, and the `rat -g`
+window never appeared. `G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`, a software renderer, had
+been hiding this for standalone Geant4 apps; RAT registers no such driver. The
+shell now points OpenGL at nixpkgs' Mesa on Linux other than NixOS. That fix has
+not yet been run on Linux or WSL.
 
 ### RAT-PAC 4.3.0 → 4.4.0: libRATEvent is gone
 
@@ -669,9 +674,19 @@ the next `nix develop` will rebuild. To keep it permanently:
 nix build --out-link ./result   # ./result is a GC root
 ```
 
-**Geant4 Qt visualization doesn't open a window (Linux)**
-The flake sets `QT_QPA_PLATFORM=wayland` and `DISPLAY=:0`. On an X11-only session
-try `QT_QPA_PLATFORM=xcb nix develop`.
+**Geant4 Qt visualization doesn't open a window, or draws nothing (Linux)**
+Look for `qt.qpa.wayland: EGL not available` or `libGL error` in the output: that
+is OpenGL finding no driver. Off NixOS the shell supplies nixpkgs' Mesa, which
+covers Intel and AMD GPUs, WSL (through `d3d12`), and software rendering. It
+can't drive NVIDIA's proprietary driver. To try X11 instead of Wayland, set
+the platform before entering the shell: `QT_QPA_PLATFORM=xcb nix develop`.
+
+**PyROOT on Linux: `cannot allocate memory in static TLS block` … `failure loading library libRATDict.so`**
+numpy, through OpenBLAS, loads gfortran's copy of `libstdc++`; cling then loads
+gcc's copy by path for RAT's dictionary, and glibc has no spare static TLS left
+for it. The shell sets `GLIBC_TUNABLES=glibc.rtld.optional_static_tls=16384` to
+reserve more. If you see this, check that the variable survived into your
+process.
 
 **`rat -g`: `parameter value (TSG) is not listed` … `Illegal parameter (0) </vis/open>`**
 RAT registers its own short list of Geant4 drivers (the OpenGL Qt ones, no TSG),

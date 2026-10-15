@@ -207,9 +207,45 @@
               export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}"
 
               ${if !isDarwin then ''
-                export QT_QPA_PLATFORM=wayland
-                export G4VIS_DEFAULT_DRIVER=TSG_QT_ZB
-                export DISPLAY=:0
+                # Defaults only, so `QT_QPA_PLATFORM=xcb nix develop` and the
+                # like still win. Wayland where there is a compositor (WSLg
+                # has one), X11 otherwise.
+                if [ -z "''${QT_QPA_PLATFORM:-}" ]; then
+                  if [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+                    export QT_QPA_PLATFORM=wayland
+                  else
+                    export QT_QPA_PLATFORM=xcb
+                  fi
+                fi
+                export G4VIS_DEFAULT_DRIVER="''${G4VIS_DEFAULT_DRIVER:-TSG_QT_ZB}"
+                export DISPLAY="''${DISPLAY:-:0}"
+
+                # Nix-built OpenGL programs look for the GPU driver under
+                # /run/opengl-driver, which only NixOS has. Anywhere else Qt
+                # reports "EGL not available", OGLSQt draws nothing, and the
+                # rat -g window never appears (RAT has no software-only
+                # driver). Point libglvnd at nixpkgs' Mesa instead: d3d12 on
+                # WSL (through /usr/lib/wsl/lib), iris/radeonsi on Intel/AMD,
+                # llvmpipe in software otherwise.
+                if [ ! -d /run/opengl-driver/lib ]; then
+                  export __EGL_VENDOR_LIBRARY_FILENAMES="${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
+                  export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
+                  export GBM_BACKENDS_PATH="${pkgs.mesa}/lib/gbm"
+                  NFR_GL_LIB="${pkgs.mesa}/lib"
+                  if [ -d /usr/lib/wsl/lib ]; then
+                    NFR_GL_LIB="$NFR_GL_LIB:/usr/lib/wsl/lib"
+                  fi
+                  export LD_LIBRARY_PATH="$NFR_GL_LIB''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                  unset NFR_GL_LIB
+                fi
+
+                # numpy, through OpenBLAS, loads gfortran's copy of
+                # libstdc++; cling then dlopens gcc's copy by path for
+                # libRATDict, and the second copy finds glibc's spare static
+                # TLS used up ("cannot allocate memory in static TLS block"),
+                # so PyROOT can't read RAT files and rattest fails. Reserve
+                # more of it.
+                export GLIBC_TUNABLES="''${GLIBC_TUNABLES:+$GLIBC_TUNABLES:}glibc.rtld.optional_static_tls=16384"
               '' else ''
                 export QT_QPA_PLATFORM=cocoa
               ''}
