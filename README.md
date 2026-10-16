@@ -408,6 +408,12 @@ physics tests), CRY, ROOT, a standalone Geant4 build, and the Geant4, RAT-PAC
 and ROOT windows, asking you what you saw at the end. See
 [tests/README.md](tests/README.md).
 
+> **One XFAIL is normal.** A clean run is every test PASS plus exactly one
+> XFAIL, `rattest-geoprint`. That is the result on macOS, Linux and Windows
+> (WSL). The test is broken upstream: its macro sets `DETECTOR geometry`, and
+> RAT-PAC 4.4.0 reads `geo_file` instead. It fails the same way on every
+> machine, so it says nothing about your install. Only a FAIL needs attention.
+
 ---
 
 ## What the shell sets up for you
@@ -598,8 +604,11 @@ Verified on aarch64-darwin with 4.4.0:
 - `nix develop .#geant4` enters, reports `Geant4 11.4.1 + ROOT 6.40.00 (no
   RAT-PAC)` and sets the CRY variables. Nothing has been compiled in it yet.
 
-Not checked: **Linux at all** (CRY included), the Qt6 viewer, and any
-downstream experiment code compiled against ROOT 6.40. The ROOT 6.36 → 6.40 jump
+Since then, the full test suite (`tests/`), Qt6 viewer included, has passed on
+macOS, Linux and Windows (WSL), apart from the expected `rattest-geoprint` XFAIL.
+
+Not checked: any downstream experiment code compiled against ROOT 6.40, and
+physics output compared with known-good results. The ROOT 6.36 → 6.40 jump
 caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
 it.
 
@@ -755,3 +764,25 @@ flake.lock   pinned input revisions — keep this committed
 README.md    this file
 tests/       one-command test suite per platform (tests/README.md)
 ```
+
+---
+
+## Test your install
+
+Once everything is installed, run the test suite for your system. Run it from
+the clone, not inside `nix develop`:
+
+```bash
+tests/macos/run-tests.sh      # macOS, from Terminal
+tests/linux/run-tests.sh      # Linux, from a terminal on the desktop
+tests/windows/run-tests.sh    # Windows: inside the Ubuntu (WSL 2) terminal
+```
+
+It takes a while the first time, because it builds the whole environment, and
+it asks you about the windows it opens. A good result is every test PASS plus
+one XFAIL, `rattest-geoprint`, which is expected (see
+[Step 5](#step-5--check-that-it-works)). If anything FAILs, send the
+`tests/results/<os>-<date>.tar.gz` it writes.
+
+**[tests/README.md](tests/README.md)** has the rest: the options, what each
+test checks, and how to read the results.

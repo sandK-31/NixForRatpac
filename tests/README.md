@@ -78,6 +78,9 @@ The exit status is 0 only if nothing failed. Statuses:
 | XFAIL | fails on every machine for an upstream reason, not this environment |
 | SKIP | not applicable here, or skipped by an option |
 
+A clean run is all PASS plus one XFAIL, `rattest-geoprint`, on macOS, Linux
+and Windows alike. That XFAIL is expected; nothing needs fixing.
+
 ## What it checks
 
 **Preflight** (every platform): Nix is installed, flakes are on, the checkout
