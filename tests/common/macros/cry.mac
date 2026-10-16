@@ -1,0 +1,19 @@
+# CRY cosmic-ray showers at sea level (CRY.ratdb defaults) in the Validation
+# detector. The sub-box is cut to 1 m: the default 10 m plane would start
+# primaries outside this 4.5 m-radius world, and rat then never finishes.
+/rat/db/set DETECTOR experiment "Validation"
+/rat/db/set DETECTOR geo_file "Validation/Valid.geo"
+/rat/db/set CRY subboxLength 1
+
+/run/initialize
+
+/rat/proc count
+/rat/procset update 5
+/rat/proclast outntuple
+
+# Shower plane 1 m above the centre
+/generator/add combo cry:point:poisson
+/generator/pos/set 0.0 0.0 1000.0
+/generator/rate/set 1.0
+
+/run/beamOn 10

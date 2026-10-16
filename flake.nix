@@ -4,19 +4,18 @@
   description = "Unified Geant4 + ROOT + RAT-PAC development environment";
 
   inputs = {
-    nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.11";
+    # 26.05 rather than 25.11: it ships Geant4 11.4.1, which is what the
+    # RAT-PAC 4.x line requires (find_package(Geant4 11.4 REQUIRED)).
+    # It also carries ROOT 6.40.00, up from 6.36.04 on 25.11; that jump turned
+    # out to cost nothing. What the channel bump did cost is the Qt6 switch,
+    # commented where it applies.
+    nixpkgs.url = "github:NixOS/nixpkgs/nixos-26.05";
     flake-utils.url = "github:numtide/flake-utils";
-    # Pinned to an explicit revision rather than the main branch, so
-    # `nix flake update` cannot move RAT-PAC underneath the postPatch
-    # workarounds. This is the exact commit this environment was built and
-    # tested against.
-    #
-    # Deliberately NOT on a 4.x release tag: those require Geant4 11.4
-    # (find_package(Geant4 11.4 REQUIRED)) and nixpkgs 25.11 ships 11.3.2, so
-    # they fail at CMake configure. Moving to 4.x means bumping nixpkgs to a
-    # channel with Geant4 11.4 and reworking the patches below.
+    # Tag 4.4.0 (commit 346c4cf, 2026-10-11), which at the time of writing is
+    # also the head of main. A tag is immutable enough that `nix flake update`
+    # cannot move RAT-PAC underneath the postPatch workaround below.
     ratpac-src = {
-      url = "github:rat-pac/ratpac-two/905b40d592bedd23736d159382fe9de6206a0b1b";
+      url = "github:rat-pac/ratpac-two/4.4.0";
       flake = false;
     };
   };
@@ -27,23 +26,22 @@
         pkgs = nixpkgs.legacyPackages.${system};
         isDarwin = pkgs.stdenv.isDarwin;
 
-        geant4custom = pkgs.geant4.override { enableQt = true; };
+        # On Linux, Geant4's default TLS model is initial-exec, which only
+        # works for libraries present at program start. Python dlopens
+        # RAT-PAC, and with it Geant4, after ROOT, so PyROOT and rattest
+        # die with "libstdc++.so: cannot allocate memory in static TLS
+        # block". nixpkgs sets global-dynamic only for its enablePython
+        # build. RAT-PAC inherits the model through Geant4_USE_FILE. Linux
+        # only: macOS doesn't need it, and the Darwin build stays unchanged.
+        geant4custom = (pkgs.geant4.override { enableQt = true; }).overrideAttrs (old:
+          pkgs.lib.optionalAttrs (!isDarwin) {
+            cmakeFlags = old.cmakeFlags ++ [ "-DGEANT4_BUILD_TLS_MODEL=global-dynamic" ];
+          });
         geant4Datasets = with pkgs.geant4.data; [
           G4ABLA G4INCL G4PhotonEvaporation G4RealSurface G4EMLOW 
           G4NDL G4PII G4SAIDDATA G4ENSDFSTATE G4PARTICLEXS 
           G4TENDL G4RadioactiveDecay
         ];
-
-        fftw3-cmake = pkgs.writeTextDir "lib/cmake/FFTW3/FFTW3Config.cmake" ''
-          if(NOT TARGET FFTW3::fftw3)
-            add_library(FFTW3::fftw3 SHARED IMPORTED)
-            set_target_properties(FFTW3::fftw3 PROPERTIES
-              IMPORTED_LOCATION "${pkgs.fftw}/lib/libfftw3${if isDarwin then ".dylib" else ".so"}"
-              INTERFACE_INCLUDE_DIRECTORIES "${pkgs.fftw.dev}/include"
-            )
-          endif()
-          set(FFTW3_FOUND TRUE)
-        '';
 
         pythonEnv = pkgs.python3.withPackages (ps: with ps; [
           numpy
@@ -52,9 +50,54 @@
           particle
         ]);
 
-        ratpac = pkgs.stdenv.mkDerivation {
+        # CRY 1.7, LLNL's cosmic-ray shower generator, behind RAT-PAC's `cry`
+        # vertex generator. nixpkgs does not package it. Laid out the way
+        # upstream's ratpac-setup installs it (shared libCRY, headers under
+        # include/cry), but src/*.cc is compiled directly: the shipped
+        # Makefile has CRLF line endings and only builds a static archive,
+        # which ratpac-setup patches by line number.
+        cry = pkgs.stdenv.mkDerivation {
+          pname = "cry";
+          version = "1.7";
+          src = pkgs.fetchurl {
+            url = "https://nuclear.llnl.gov/simulation/cry_v1.7.tar.gz";
+            hash = "sha256-3O4kKPgcuhE/guDHxC9Nhb/0uFMOWrXILAWb7T5XDCA=";
+          };
+
+          buildPhase = ''
+            runHook preBuild
+            $CXX -O2 -fPIC -shared -Isrc src/*.cc -o libCRY${pkgs.stdenv.hostPlatform.extensions.sharedLibrary} \
+              ${pkgs.lib.optionalString isDarwin "-Wl,-install_name,$out/lib/libCRY.dylib"}
+            runHook postBuild
+          '';
+
+          installPhase = ''
+            runHook preInstall
+            install -Dm755 -t $out/lib libCRY${pkgs.stdenv.hostPlatform.extensions.sharedLibrary}
+            install -Dm644 -t $out/include/cry src/*.h
+            # Per-altitude tables (0, 2100, 11300 m), read at run time from $CRYDATA.
+            install -Dm644 -t $out/share/cry/data data/*
+            runHook postInstall
+          '';
+
+          meta = {
+            description = "Cosmic-ray shower generator (LLNL)";
+            homepage = "https://nuclear.llnl.gov/simulation/";
+          };
+        };
+
+        # The variables ratpac-setup's env.sh exports. RAT-PAC's CMake turns
+        # CRY on only if CRYLIB is set when it configures, and VertexGen_CRY
+        # reads CRYDATA with getenv() at run time.
+        cryEnv = {
+          CRYLIB = "${cry}/lib";
+          CRYINCLUDE = "${cry}/include/cry";
+          CRYDATA = "${cry}/share/cry/data";
+        };
+
+        ratpac = pkgs.stdenv.mkDerivation (cryEnv // {
           pname = "ratpac-two";
-          version = "unstable";
+          version = "4.4.0";
           src = ratpac-src;
 
           nativeBuildInputs = with pkgs; [
@@ -67,6 +110,7 @@
             geant4custom
             pkgs.root
             pythonEnv
+            cry
           ] ++ (with pkgs; [
             fftw
             fftwFloat
@@ -79,7 +123,10 @@
             libxpm
             libxft
             libxext
-            qt5.qtbase
+            # Qt6, not Qt5: nixpkgs 26.05 switched geant4's enableQt to qt6, and
+            # geant4 propagates qt6.wrapQtAppsHook, which aborts the build if it
+            # finds Qt5 anywhere in the same closure.
+            qt6.qtbase
           ]) ++ pkgs.lib.optionals (!isDarwin) (with pkgs; [
             # null on darwin, so these only ever contribute on Linux
             libGL
@@ -93,13 +140,23 @@
             "-DCMAKE_INSTALL_PREFIX=${placeholder "out"}"
             "-DCMAKE_BUILD_TYPE=Release"
             "-DROOT_DIR=${pkgs.root}/cmake"
-            "-DFFTW3_DIR=${fftw3-cmake}/lib/cmake/FFTW3"
           ];
 
-          # Upstream compatibility fixes. Each one is guarded by a grep so that if
-          # ratpac-src moves and a fix stops applying, the build fails loudly here
-          # instead of the sed silently matching nothing and failing later (or not
-          # at all, leaving the fix quietly absent).
+          # The binaries are already wrapped by wrapQtAppsHook (propagated by
+          # geant4). Without CRYDATA, VertexGen_CRY segfaults in its
+          # constructor, so give rat a default for when it runs outside the
+          # dev shell's environment; a CRYDATA already set still wins.
+          qtWrapperArgs = [ "--set-default" "CRYDATA" cryEnv.CRYDATA ];
+
+          # Upstream compatibility fix, guarded by a grep so that if ratpac-src
+          # moves and it stops applying, the build fails loudly here instead of
+          # the sed silently matching nothing.
+          #
+          # Two patches carried before the 26.05 bump are gone: as of 4.3.0
+          # upstream guards the TPython::Eval path behind
+          # `#if ROOT_VERSION_CODE < ROOT_VERSION(6, 34, 0)`, and it already
+          # wraps every duration_cast(...).count() in static_cast<long>.
+          # Re-applying either here would rewrite correct code.
           postPatch = ''
             fixup() { # fixup <description> <file> <pattern>
               grep -q "$3" "$2" \
@@ -110,17 +167,6 @@
             # is read-only in the Nix sandbox.
             fixup "copy-compile-commands" CMakeLists.txt 'copy-compile-commands'
             sed -i '/add_custom_target(/,/^)/{/copy-compile-commands/,/^)/d; /add_custom_target(/d}' CMakeLists.txt
-
-            # ROOT 6.36 removed TPython::Eval; TPython::Exec is the replacement.
-            fixup "TPython::Eval" src/core/src/PythonProc.cc 'TPython::Eval'
-            sed -i 's/TPython::Eval/TPython::Exec/g' src/core/src/PythonProc.cc
-
-            # `duration_cast<...>(...).count()` returns a rep that is ambiguous for
-            # RAT's overloaded operator<<; pin it to long. Non-greedy match across
-            # newlines, so it also catches the call split over two lines.
-            fixup "chrono duration_cast" src/daq/src/WaveformAnalysisLucyDDM.cc 'duration_cast'
-            find src -name "*.cc" -exec perl -0777 -pi \
-              -e 's/(std::chrono::duration_cast<.*?>\(.*?\)\s*\.count\(\))/static_cast<long>($1)/gs' {} +
           '';
 
           meta = {
@@ -129,7 +175,7 @@
             # Without this, `nix run` looks for bin/ratpac-two and fails.
             mainProgram = "rat";
           };
-        };
+        });
 
         # Both dev shells are built from this one function so they cannot drift
         # apart. withRatpac = false drops RAT-PAC from buildInputs entirely, so
@@ -139,10 +185,20 @@
             inherit (pkgs.lib) optionalString;
             # Trailing colon is part of the string, so it disappears along with
             # the path when RAT-PAC is not included.
-            ratpacInc = optionalString withRatpac "${ratpac}/include:";
+            #
+            # include/stlplus is needed because RAT/Log.hh includes
+            # "dprintf.hpp" from there. libRATDict's payload pulls in Log.hh,
+            # and the include paths baked into the dictionary point at the
+            # long-gone build sandbox, so without this cling cannot parse
+            # RAT::DS::Root and DS-reading ROOT macros and PyROOT fail.
+            ratpacInc = optionalString withRatpac
+              "${ratpac}/include:${ratpac}/include/stlplus:";
             ratpacLib = optionalString withRatpac "${ratpac}/lib:";
           in
-          pkgs.mkShell {
+          # cryEnv goes into both shells: the CRY library is not RAT-PAC
+          # specific, and a RAT-PAC built from source inside the shell picks
+          # it up the same way the package above does.
+          pkgs.mkShell (cryEnv // {
             # Order matters: it sets PATH precedence. Keep RAT-PAC in the same
             # slot it occupied before this shell was made optional.
             buildInputs = [
@@ -157,12 +213,41 @@
 
             shellHook = ''
               export SHELL="${pkgs.bash}/bin/bash"
-              export QT_PLUGIN_PATH="${pkgs.qt5.qtbase.bin}/${pkgs.qt5.qtbase.qtPluginPrefix}"
+              # qt6.qtbase has no `bin` output (just out/dev), unlike qt5.qtbase.
+              export QT_PLUGIN_PATH="${pkgs.qt6.qtbase}/${pkgs.qt6.qtbase.qtPluginPrefix}"
 
               ${if !isDarwin then ''
-                export QT_QPA_PLATFORM=wayland
-                export G4VIS_DEFAULT_DRIVER=TSG_QT_ZB
-                export DISPLAY=:0
+                # Defaults only, so `QT_QPA_PLATFORM=xcb nix develop` and the
+                # like still win. Wayland where there is a compositor (WSLg
+                # has one), X11 otherwise.
+                if [ -z "''${QT_QPA_PLATFORM:-}" ]; then
+                  if [ -n "''${WAYLAND_DISPLAY:-}" ]; then
+                    export QT_QPA_PLATFORM=wayland
+                  else
+                    export QT_QPA_PLATFORM=xcb
+                  fi
+                fi
+                export G4VIS_DEFAULT_DRIVER="''${G4VIS_DEFAULT_DRIVER:-TSG_QT_ZB}"
+                export DISPLAY="''${DISPLAY:-:0}"
+
+                # Nix-built OpenGL programs look for the GPU driver under
+                # /run/opengl-driver, which only NixOS has. Anywhere else Qt
+                # reports "EGL not available", OGLSQt draws nothing, and the
+                # rat -g window never appears (RAT has no software-only
+                # driver). Point libglvnd at nixpkgs' Mesa instead: d3d12 on
+                # WSL (through /usr/lib/wsl/lib), iris/radeonsi on Intel/AMD,
+                # llvmpipe in software otherwise.
+                if [ ! -d /run/opengl-driver/lib ]; then
+                  export __EGL_VENDOR_LIBRARY_FILENAMES="${pkgs.mesa}/share/glvnd/egl_vendor.d/50_mesa.json"
+                  export LIBGL_DRIVERS_PATH="${pkgs.mesa}/lib/dri"
+                  export GBM_BACKENDS_PATH="${pkgs.mesa}/lib/gbm"
+                  NFR_GL_LIB="${pkgs.mesa}/lib"
+                  if [ -d /usr/lib/wsl/lib ]; then
+                    NFR_GL_LIB="$NFR_GL_LIB:/usr/lib/wsl/lib"
+                  fi
+                  export LD_LIBRARY_PATH="$NFR_GL_LIB''${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+                  unset NFR_GL_LIB
+                fi
               '' else ''
                 export QT_QPA_PLATFORM=cocoa
               ''}
@@ -192,12 +277,12 @@
               export DYLD_LIBRARY_PATH="$RAT_LIB_PATH''${DYLD_LIBRARY_PATH:+:$DYLD_LIBRARY_PATH}"
 
               echo "Environment Ready: ${
-                if withRatpac then "RAT-PAC 905b40d + " else ""
+                if withRatpac then "RAT-PAC ${ratpac.version} + " else ""
               }Geant4 $(geant4-config --version) + ROOT $(root-config --version)${
                 if withRatpac then "" else " (no RAT-PAC)"
               }"
             '';
-          };
+          });
 
       in
       {

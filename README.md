@@ -8,8 +8,30 @@ nix develop
 ```
 
 No `apt`/`brew` packages to install, no manual CMake builds, no `LD_LIBRARY_PATH`
-archaeology. Works on macOS (Apple Silicon and Intel) and Linux, and on Windows
-through WSL 2 — see [Step 1](#windows-wsl-2).
+archaeology. Works on Apple Silicon Macs and Linux, and on Windows through
+WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
+(below).
+
+> ### Upgrading from the previous version
+>
+> As of 2026-10-16 this environment is on nixpkgs `nixos-26.05` (Geant4 11.4.1,
+> ROOT 6.40.00) and RAT-PAC **4.4.0**, up from RAT-PAC 3.x, Geant4 11.3.2 and
+> ROOT 6.36.04. The full test suite passes on macOS, Linux and Windows (WSL).
+> If you already use this repo, after `git pull`:
+>
+> - **The first `nix develop` rebuilds the environment**, so budget time for it.
+> - **`RATEvent` is gone.** If your experiment's `CMakeLists.txt` links
+>   `RATEvent`, drop it and link `RATPAC` alone — see
+>   [RAT-PAC 4.3.0 → 4.4.0](#rat-pac-430--440-libratevent-is-gone).
+> - **Optical timing can differ from earlier runs** (RAT-PAC #447). Check before
+>   mixing new results with old ones.
+> - **Intel Macs are not supported:** nixpkgs 26.05 marks `arrow-cpp` broken on
+>   `x86_64-darwin`, and `plotly` needs it, so the flake does not evaluate there.
+>
+> The previous environment is kept as the tag `ratpac-3`. To stay on it, run
+> `git checkout ratpac-3` in your clone, or
+> `nix develop github:sandK-31/NixForRatpac/ratpac-3` without one. See
+> [What changed in this version](#what-changed-in-this-version) for details.
 
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
 > [Sander Katz](https://github.com/sandK-31).
@@ -18,10 +40,11 @@ through WSL 2 — see [Step 1](#windows-wsl-2).
 
 | Component | Version (as pinned) |
 | --- | --- |
-| RAT-PAC 2 | `rat-pac/ratpac-two` @ `905b40d` (2026-03-23) |
-| Geant4 | 11.3.2, built with Qt visualization enabled |
-| ROOT | 6.36.04 |
+| RAT-PAC 2 | `rat-pac/ratpac-two` @ `4.4.0` (2026-10-11) |
+| Geant4 | 11.4.1, built with Qt6 visualization enabled (and, on Linux, the `global-dynamic` TLS model so Python can load it) |
+| ROOT | 6.40.00 |
 | Geant4 datasets | G4NDL, G4EMLOW, G4PhotonEvaporation, G4RadioactiveDecay, … |
+| CRY | 1.7 (LLNL cosmic-ray showers), built into RAT-PAC as the `cry` generator |
 | Python | 3.x with `numpy`, `ROOT`, `plotly`, `particle` |
 
 **Don't need RAT-PAC?** There's a second shell with everything above *except*
@@ -297,7 +320,7 @@ nix develop
 When it's ready you'll see:
 
 ```
-Environment Ready: RAT-PAC 905b40d + Geant4 11.3.2 + ROOT 6.36.04
+Environment Ready: RAT-PAC 4.4.0 + Geant4 11.4.1 + ROOT 6.40.00
 ```
 
 You're now in a Bash shell with `rat`, `root`, `geant4-config`, and the Python
@@ -312,7 +335,7 @@ nix develop .#geant4
 ```
 
 ```
-Environment Ready: Geant4 11.3.2 + ROOT 6.36.04 (no RAT-PAC)
+Environment Ready: Geant4 11.4.1 + ROOT 6.40.00 (no RAT-PAC)
 ```
 
 This shell is identical to the default one minus RAT-PAC: same Geant4 (with Qt),
@@ -365,10 +388,10 @@ nix flake show
 Inside `nix develop`:
 
 ```bash
-which rat            # → /nix/store/…-ratpac-two-unstable/bin/rat
+which rat            # → /nix/store/…-ratpac-two-4.4.0/bin/rat
 rat -h               # prints the RAT usage/options block
-root-config --version    # → 6.36.04
-geant4-config --version  # → 11.3.2
+root-config --version    # → 6.40.00
+geant4-config --version  # → 11.4.1
 echo $RATROOT
 ```
 
@@ -382,6 +405,23 @@ Error in cling::AutoLoadingVisitor::InsertIntoAutoLoadingState:
 This is a ROOT dictionary noise message, not a broken install. If the `usage: rat
 [options] …` block follows it, you're fine.
 
+**The full check** is one command, run from the clone (not inside `nix develop`):
+
+```bash
+tests/macos/run-tests.sh      # or tests/linux/…, or tests/windows/… inside WSL
+```
+
+It builds everything, then tests both shells, RAT-PAC (including its own
+physics tests), CRY, ROOT, a standalone Geant4 build, and the Geant4, RAT-PAC
+and ROOT windows, asking you what you saw at the end. See
+[tests/README.md](tests/README.md).
+
+> **One XFAIL is normal.** A clean run is every test PASS plus exactly one
+> XFAIL, `rattest-geoprint`. That is the result on macOS, Linux and Windows
+> (WSL). The test is broken upstream: its macro sets `DETECTOR geometry`, and
+> RAT-PAC 4.4.0 reads `geo_file` instead. It fails the same way on every
+> machine, so it says nothing about your install. Only a FAIL needs attention.
+
 ---
 
 ## What the shell sets up for you
@@ -391,11 +431,13 @@ This is a ROOT dictionary noise message, not a broken install. If the `usage: ra
 | `RATROOT` | the RAT-PAC store path | — |
 | `RATSHARE` | `$RATROOT/share/RAT` (macros, models, ratdb, python) | — |
 | `PYTHONPATH` | `$RATSHARE/python` (the `rat`, `ratproc`, `rattest` modules) | — |
-| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, ROOT, and Geant4 headers | yes, minus RAT-PAC |
-| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC, and Geant4 headers | yes, minus RAT-PAC |
+| `CPLUS_INCLUDE_PATH` | `$PWD/include`, RAT-PAC (with `include/stlplus`), ROOT, and Geant4 headers | yes, minus RAT-PAC |
+| `ROOT_INCLUDE_PATH` | `$PWD/include`, RAT-PAC (with `include/stlplus`, which cling needs to read RAT's DS classes), and Geant4 headers | yes, minus RAT-PAC |
 | `LD_LIBRARY_PATH` | `$PWD/lib`, `$RATROOT/lib`, Geant4 libs | yes, minus `$RATROOT/lib` |
 | `DYLD_LIBRARY_PATH` | same as above — macOS ignores `LD_LIBRARY_PATH` | yes, minus `$RATROOT/lib` |
-| `QT_QPA_PLATFORM` | `cocoa` on macOS, `wayland` on Linux | yes |
+| `CRYLIB`, `CRYINCLUDE`, `CRYDATA` | CRY's `lib`, `include/cry` and data directories; RAT's `cry` generator reads `CRYDATA` at run time | yes |
+| `QT_QPA_PLATFORM` | `cocoa` on macOS; on Linux `wayland` when there's a Wayland compositor (WSLg has one), `xcb` otherwise. A value you set before `nix develop` wins | yes |
+| `__EGL_VENDOR_LIBRARY_FILENAMES`, `LIBGL_DRIVERS_PATH`, `GBM_BACKENDS_PATH` | Linux other than NixOS: nixpkgs' Mesa, whose `lib` (and WSL's `/usr/lib/wsl/lib`) also goes on `LD_LIBRARY_PATH`. Nix-built OpenGL programs otherwise find no driver | yes |
 | `SHELL` | the Nix-provided Bash | yes |
 
 The Geant4 dataset variables (`G4LEDATA`, `G4NEUTRONHPDATA`, …) are set
@@ -420,10 +462,10 @@ nix flake metadata
 nix flake update
 ```
 
-`ratpac-src` is pinned to an **explicit commit** (`905b40d`) in `flake.nix`, not to
-a branch, so `nix flake update` will *not* move RAT-PAC. That's deliberate: the
-`postPatch` section of `flake.nix` carries workarounds for upstream bugs, and a
-surprise RAT-PAC bump is the most likely way to break this environment.
+`ratpac-src` is pinned to the **`4.4.0` tag** in `flake.nix`, not to a branch, so
+`nix flake update` will *not* move RAT-PAC. That's deliberate: the `postPatch`
+section of `flake.nix` carries a workaround for an upstream bug, and a surprise
+RAT-PAC bump is the most likely way to break this environment.
 
 To move RAT-PAC deliberately, edit the `ratpac-src` URL in `flake.nix`, then:
 
@@ -432,20 +474,171 @@ nix flake update ratpac-src
 nix build          # patch guards will flag any workaround that no longer applies
 ```
 
-> ### ⚠️ RAT-PAC 4.x needs a newer Geant4 than this flake provides
->
-> Tags `4.0.0` and `4.1.0` declare `find_package(Geant4 11.4 REQUIRED)`, but
-> nixpkgs `nixos-25.11` ships Geant4 **11.3.2**, so they fail at CMake configure:
->
-> ```
-> Could not find a configuration file for package "Geant4" that is
-> compatible with requested version "11.4".
-> ```
->
-> Tag `3.4.0` and earlier have no Geant4 version floor and do build here.
-> Going to 4.x means moving `nixpkgs` to a channel with Geant4 11.4
-> (`nixos-unstable` has 11.4.2), which rebuilds ROOT and Geant4 from source and
-> will likely require reworking the `postPatch` fixups.
+## What changed in this version
+
+The previous version (tag `ratpac-3`) was stuck on RAT-PAC 3.x because tags
+`4.0.0` and later declare `find_package(Geant4 11.4 REQUIRED)` while nixpkgs
+`nixos-25.11` shipped Geant4 **11.3.2**. nixpkgs `nixos-26.05` ships
+**11.4.1**, which clears that floor, so this version moves both at once.
+
+Geant4 was the easy part. Three other things changed.
+
+### Qt5 → Qt6
+
+nixpkgs 26.05 switched geant4's `enableQt` from `qt5` to `qt6`. geant4
+propagates `qt6.wrapQtAppsHook`, which aborts the build outright if Qt5 appears
+anywhere in the same closure:
+
+```
+Error: detected mismatched Qt dependencies:
+    /nix/store/…-qtbase-5.15.19-dev
+    /nix/store/…-qtbase-6.11.2
+```
+
+So `pkgs.qt5.qtbase` in RAT-PAC's `buildInputs` became `pkgs.qt6.qtbase`. The
+`shellHook` needed a second edit: `qt6.qtbase` has no `bin` output (only `out`
+and `dev`), so `QT_PLUGIN_PATH` is built from the package itself, and the plugin
+prefix moved to `lib/qt-6/plugins`.
+
+**This is the part that broke on Linux.** The first test-suite run on
+WSL (2026-10-14) found that Nix-built Qt had no OpenGL driver at all off NixOS:
+Qt printed `EGL not available`, the OGLSQt viewer drew nothing, and the `rat -g`
+window never appeared. `G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`, a software renderer, had
+been hiding this for standalone Geant4 apps; RAT registers no such driver. The
+shell now points OpenGL at nixpkgs' Mesa on Linux other than NixOS, and with
+that the viewer tests pass on Linux and WSL.
+
+### RAT-PAC 4.3.0 → 4.4.0: libRATEvent is gone
+
+The upgrade first pinned 4.3.0, which does not link on macOS. `libRATEvent`, a
+slimmed-down sibling of `libRATPAC`, had four undefined symbols
+(`RAT::PhysicsList`, `RAT::DetectorConstruction`, and `RAT::TransitTimeCalculator`'s
+constructor and destructor) whose definitions live only in `libRATPAC`. Linux's
+linker leaves undefined symbols in a shared library to load time; Apple's
+refuses them. The upgrade got past it with a Darwin-only
+`-Wl,-undefined,dynamic_lookup` in `cmakeFlags`.
+
+Upstream hit the same failure on a Mac and fixed it in 4.4.0: the CMake
+refactor ([#443](https://github.com/rat-pac/ratpac-two/pull/443)) and then
+[#450](https://github.com/rat-pac/ratpac-two/pull/450) deleted `libRATEvent`
+outright. The flag is gone with it, and `cmakeFlags` is now the same on both
+platforms.
+
+What that means if you build an experiment against this environment:
+
+- **Linking `RATEvent` now fails**, because there is no `libRATEvent` to find.
+  Drop it from `target_link_libraries`; `RATPAC` has always contained
+  everything `RATEvent` did.
+- **The rest of the CMake interface still works.** 4.4.0's `RatpacConfig.cmake`
+  adds a `Ratpac::RATPAC` target but keeps the old `RATROOT`, `RATSHARE`,
+  include-directory and link-directory settings, so `find_package(Ratpac)` plus
+  a bare `RATPAC` link still resolves. Headers still install to
+  `$RATROOT/include`.
+- **Optical output can differ from 4.3.0.**
+  [#447](https://github.com/rat-pac/ratpac-two/pull/447) changes how the
+  Cherenkov, scintillation-waveform and WLS code read their property tables, to
+  handle single-value vectors under Geant4 11.4, and lengthens reemission-time
+  sampling ("from 3sigma to 30, consistent with scintillation timing
+  sampling"), so timing results may not match a 4.3.0 run exactly.
+
+### Two `postPatch` fixups deleted
+
+Upstream fixed both between `905b40d` and `4.3.0`, and re-applying them would
+rewrite correct code:
+
+- **`TPython::Eval` → `Exec`** — `src/core/src/PythonProc.cc` now guards the old
+  implementation behind `#if ROOT_VERSION_CODE < ROOT_VERSION(6, 34, 0)`. Note
+  the old `fixup` guard would *not* have caught this: it greps for
+  `TPython::Eval`, which still matches inside the dead branch.
+- **`duration_cast(…).count()`** — already wrapped in `static_cast<long>` at all
+  three call sites in `src/daq/src/WaveformAnalysisLucyDDM.cc`.
+
+`copy-compile-commands` is still needed and still applies.
+
+### CRY added
+
+Unlike the three changes above, this one isn't forced by the move: the
+previous version never had CRY either. RAT-PAC builds its `cry` vertex generator only if
+`CRYLIB` is set when CMake configures, and nixpkgs has no CRY package, so
+`flake.nix` now builds CRY 1.7 from the LLNL tarball and sets `CRYLIB`,
+`CRYINCLUDE` and `CRYDATA` in both the RAT-PAC build and the dev shells, the
+same three variables upstream's `ratpac-setup` exports.
+
+`CRYDATA` matters at run time too: `VertexGen_CRY` reads it with `getenv()` when
+the generator is created and segfaults if it's unset. Both shells set it, and
+the `rat` binary also falls back to the packaged data directory when it's
+missing, so a stripped environment can't crash it. Set `CRYDATA` yourself to
+point at other tables.
+
+To use it, swap the generator block in a macro for:
+
+```
+/generator/add combo cry:point:poisson
+/generator/pos/set 0.0 0.0 1000.0    # where the shower plane sits, in mm
+/generator/rate/set 1.0
+```
+
+Shower settings (particle types, altitude 0/2100/11300 m, latitude, date,
+sub-box size) come from `$RATSHARE/ratdb/CRY.ratdb` and can be overridden with
+`/rat/db/set CRY <field> <value>` before `/run/initialize`.
+
+**Keep the sub-box inside your world volume.** The default `subboxLength` is
+10, a 10 m × 10 m plane, so primaries start up to 5 m from `pos` in x and y.
+In a world smaller than that, some start outside it, and RAT doesn't drop
+them. A 20-event test in the Validation geometry (a 4.5 m-radius world) began
+with `start point … is outside the world volume`, then spent 56 CPU-minutes
+printing `GeomSolids1002` / `snxt = 9e+99` warnings, 2 GB of them, and had
+not finished when it was killed. Set
+`/rat/db/set CRY subboxLength 1` (allowed sizes: 1, 3, 10, 30, 100, 300 m) or
+place `pos` so that the whole plane is inside the world.
+
+### What has and hasn't been checked
+
+Verified on aarch64-darwin with 4.4.0:
+
+- the environment builds with no platform-specific `cmakeFlags`, and
+  `nix develop` reports `RAT-PAC 4.4.0 + Geant4 11.4.1 + ROOT 6.40.00`;
+- `rat -N 50 $RATSHARE/macros/examples/electron.mac` runs 50/50 triggered, and
+  the ntuple reads back in ROOT with mean `mcpecount` 15.8, against 14.5 for
+  the same 50 events on 4.3.0 (a sanity check at this statistics, not a physics
+  comparison);
+- a minimal downstream CMake project using `find_package(Ratpac)` and a bare
+  `RATPAC` link compiles, links and runs;
+- with CRY: configure reports `Compiling with CRY enabled`, `Config.hh` has
+  `CRY_Enabled 1`, and `libRATPAC` links the packaged `libCRY`. Ten events of
+  `/generator/add combo cry:point:poisson` in the Validation geometry (1 m
+  sub-box, sea level) ran at 1.2 s/event and gave 7 μ± at 0.6–13 GeV and
+  3 neutrons at 0.7–23 MeV, all downward-going;
+- `nix develop .#geant4` enters, reports `Geant4 11.4.1 + ROOT 6.40.00 (no
+  RAT-PAC)` and sets the CRY variables. Nothing has been compiled in it yet.
+
+Since then, the full test suite (`tests/`), Qt6 viewer included, has passed on
+macOS, Linux and Windows (WSL), apart from the expected `rattest-geoprint` XFAIL.
+
+Not checked: any downstream experiment code compiled against ROOT 6.40, and
+physics output compared with known-good results. The ROOT 6.36 → 6.40 jump
+caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
+it.
+
+Each run also prints 19 `mat219` warnings, one per single-value
+`SCINTWAVEFORM*`, `REEMITWAVEFORM*` or `SCINTMOD*` table in RAT's material
+database (a single decay time is stored as a one-entry vector). The same 19
+appear on 4.3.0 and 4.4.0. They are warnings, not errors; reading
+one-entry tables like these correctly under Geant4 11.4 is what #447 fixed:
+
+```
+*** G4Exception : mat219
+      issued by : G4MaterialPropertiesTable::AddProperty()
+AddProperty warning. A material property vector must have more than one value.
+```
+
+One pre-existing startup warning is unchanged from the previous version and is not a
+regression:
+
+```
+Error in cling::AutoLoadingVisitor::InsertIntoAutoLoadingState:
+   Missing FileEntry for smart_ptr.hpp
+```
 
 If an update does break the build, revert the lock:
 
@@ -497,9 +690,30 @@ the next `nix develop` will rebuild. To keep it permanently:
 nix build --out-link ./result   # ./result is a GC root
 ```
 
-**Geant4 Qt visualization doesn't open a window (Linux)**
-The flake sets `QT_QPA_PLATFORM=wayland` and `DISPLAY=:0`. On an X11-only session
-try `QT_QPA_PLATFORM=xcb nix develop`.
+**Geant4 Qt visualization doesn't open a window, or draws nothing (Linux)**
+Look for `qt.qpa.wayland: EGL not available` or `libGL error` in the output: that
+is OpenGL finding no driver. Off NixOS the shell supplies nixpkgs' Mesa, which
+covers Intel and AMD GPUs, WSL (through `d3d12`), and software rendering. It
+can't drive NVIDIA's proprietary driver. To try X11 instead of Wayland, set
+the platform before entering the shell: `QT_QPA_PLATFORM=xcb nix develop`.
+
+**PyROOT on Linux: `cannot allocate memory in static TLS block` … `failure loading library libRATDict.so`**
+Geant4's default thread-local storage model, `initial-exec`, only works for
+libraries loaded when a program starts. Python loads RAT-PAC, and with it
+Geant4, later: when you `import rat`, read a RAT file, or run `rattest`. So the
+flake builds Geant4 with `-DGEANT4_BUILD_TLS_MODEL=global-dynamic` on Linux,
+as nixpkgs does for its Python-enabled Geant4, and RAT-PAC picks the model up
+from Geant4's CMake config. If you still see this error, your build predates
+that change: `git pull` and enter `nix develop` again, which rebuilds Geant4 and
+RAT-PAC once. `geant4-config` should then contain
+`geant4_tls_model="global-dynamic"`.
+
+**`rat -g`: `parameter value (TSG) is not listed` … `Illegal parameter (0) </vis/open>`**
+RAT registers its own short list of Geant4 drivers (the OpenGL Qt ones, no TSG),
+so a bare `/vis/open`, which asks for Geant4's default TSG driver, fails and
+stops the macro. Name the driver, as RAT's own `macros/visualizations/*.mac`
+do: `/vis/open OGLSQt`. Once the viewer is up, RAT's output goes to its console
+and to `rat.<host>.<pid>.log`, not the terminal.
 
 **Windows: a window never draws and its title says `[WARN: COPY MODE]`**
 This is a WSLg bug, not a RAT-PAC or Nix one. The digitizer — or any other GUI:
@@ -556,4 +770,27 @@ also clears it, at the cost of everything you had running.
 flake.nix    environment + RAT-PAC package definition
 flake.lock   pinned input revisions — keep this committed
 README.md    this file
+tests/       one-command test suite per platform (tests/README.md)
 ```
+
+---
+
+## Test your install
+
+Once everything is installed, run the test suite for your system. Run it from
+the clone, not inside `nix develop`:
+
+```bash
+tests/macos/run-tests.sh      # macOS, from Terminal
+tests/linux/run-tests.sh      # Linux, from a terminal on the desktop
+tests/windows/run-tests.sh    # Windows: inside the Ubuntu (WSL 2) terminal
+```
+
+It takes a while the first time, because it builds the whole environment, and
+it asks you about the windows it opens. A good result is every test PASS plus
+one XFAIL, `rattest-geoprint`, which is expected (see
+[Step 5](#step-5--check-that-it-works)). If anything FAILs, send the
+`tests/results/<os>-<date>.tar.gz` it writes.
+
+**[tests/README.md](tests/README.md)** has the rest: the options, what each
+test checks, and how to read the results.
