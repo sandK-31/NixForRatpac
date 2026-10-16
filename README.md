@@ -16,7 +16,8 @@ WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
 >
 > As of 2026-10-16 this environment is on nixpkgs `nixos-26.05` (Geant4 11.4.1,
 > ROOT 6.40.00) and RAT-PAC **4.4.0**, up from RAT-PAC 3.x, Geant4 11.3.2 and
-> ROOT 6.36.04. The full test suite passes on macOS, Linux and Windows (WSL).
+> ROOT 6.36.04. The full test suite passes on Apple Silicon macOS, Linux and
+> Windows (WSL).
 > If you already use this repo, after `git pull`:
 >
 > - **The first `nix develop` rebuilds the environment**, so budget time for it.
@@ -25,8 +26,10 @@ WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
 >   [RAT-PAC 4.3.0 → 4.4.0](#rat-pac-430--440-libratevent-is-gone).
 > - **Optical timing can differ from earlier runs** (RAT-PAC #447). Check before
 >   mixing new results with old ones.
-> - **Intel Macs are not supported:** nixpkgs 26.05 marks `arrow-cpp` broken on
->   `x86_64-darwin`, and `plotly` needs it, so the flake does not evaluate there.
+> - **Not tested on Intel Macs, and not supported there.** This version has
+>   never been run on an Intel Mac. It also cannot be: nixpkgs 26.05 marks
+>   `arrow-cpp` broken on `x86_64-darwin`, and `plotly` needs it, so neither
+>   shell evaluates there. Intel Mac users should stay on `ratpac-3` (below).
 >
 > The previous environment is kept as the tag `ratpac-3`. To stay on it, run
 > `git checkout ratpac-3` in your clone, or
@@ -61,6 +64,10 @@ nix develop .#geant4
 Download page: **<https://nixos.org/download/>**
 
 ### macOS
+
+> **Intel Macs:** this version is not tested on Intel Macs and does not
+> evaluate there. Install Nix as below, then use the `ratpac-3` tag — see
+> [Upgrading from the previous version](#upgrading-from-the-previous-version).
 
 Nix on macOS is always a *multi-user* (daemon) install. Run the official installer:
 
@@ -615,7 +622,8 @@ Verified on aarch64-darwin with 4.4.0:
 Since then, the full test suite (`tests/`), Qt6 viewer included, has passed on
 macOS, Linux and Windows (WSL), apart from the expected `rattest-geoprint` XFAIL.
 
-Not checked: any downstream experiment code compiled against ROOT 6.40, and
+Not checked: Intel Macs (no test run, and the flake does not evaluate on
+`x86_64-darwin`), any downstream experiment code compiled against ROOT 6.40, and
 physics output compared with known-good results. The ROOT 6.36 → 6.40 jump
 caused no trouble for RAT-PAC itself, but nothing else has been rebuilt against
 it.
