@@ -29,11 +29,14 @@ WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
 > - **Not tested on Intel Macs, and not supported there.** This version has
 >   never been run on an Intel Mac. It also cannot be: nixpkgs 26.05 marks
 >   `arrow-cpp` broken on `x86_64-darwin`, and `plotly` needs it, so neither
->   shell evaluates there. Intel Mac users should stay on `ratpac-3` (below).
+>   shell evaluates there. Intel Mac users should stay on `ratpac-3.4.0-pre`
+>   (below).
 >
-> The previous environment is kept on the branch `ratpac-3`. To stay on it, run
-> `git checkout ratpac-3` in your clone, or
-> `nix develop github:sandK-31/NixForRatpac/ratpac-3` without one. See
+> The previous environment is kept on the branch `ratpac-3.4.0-pre`. It pins
+> RAT-PAC commit `905b40d`, two commits before the 3.4.0 release: it lacks
+> 3.4.0's updated Decay0 and beta-decay data (#379) and a FOM naming fix (#381).
+> To stay on it, run `git checkout ratpac-3.4.0-pre` in your clone, or
+> `nix develop github:sandK-31/NixForRatpac/ratpac-3.4.0-pre` without one. See
 > [What changed in this version](#what-changed-in-this-version) for details.
 
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
@@ -66,7 +69,7 @@ Download page: **<https://nixos.org/download/>**
 ### macOS
 
 > **Intel Macs:** this version is not tested on Intel Macs and does not
-> evaluate there. Install Nix as below, then use the `ratpac-3` branch — see
+> evaluate there. Install Nix as below, then use the `ratpac-3.4.0-pre` branch — see
 > [Upgrading from the previous version](#upgrading-from-the-previous-version).
 
 Nix on macOS is always a *multi-user* (daemon) install. Run the official installer:
@@ -483,7 +486,7 @@ nix build          # patch guards will flag any workaround that no longer applie
 
 ## What changed in this version
 
-The previous version (branch `ratpac-3`) was stuck on RAT-PAC 3.x because tags
+The previous version (branch `ratpac-3.4.0-pre`) was stuck on RAT-PAC 3.x because tags
 `4.0.0` and later declare `find_package(Geant4 11.4 REQUIRED)` while nixpkgs
 `nixos-25.11` shipped Geant4 **11.3.2**. nixpkgs `nixos-26.05` ships
 **11.4.1**, which clears that floor, so this version moves both at once.
