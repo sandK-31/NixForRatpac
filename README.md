@@ -31,7 +31,7 @@ WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
 >   `arrow-cpp` broken on `x86_64-darwin`, and `plotly` needs it, so neither
 >   shell evaluates there. Intel Mac users should stay on `ratpac-3` (below).
 >
-> The previous environment is kept as the tag `ratpac-3`. To stay on it, run
+> The previous environment is kept on the branch `ratpac-3`. To stay on it, run
 > `git checkout ratpac-3` in your clone, or
 > `nix develop github:sandK-31/NixForRatpac/ratpac-3` without one. See
 > [What changed in this version](#what-changed-in-this-version) for details.
@@ -66,7 +66,7 @@ Download page: **<https://nixos.org/download/>**
 ### macOS
 
 > **Intel Macs:** this version is not tested on Intel Macs and does not
-> evaluate there. Install Nix as below, then use the `ratpac-3` tag — see
+> evaluate there. Install Nix as below, then use the `ratpac-3` branch — see
 > [Upgrading from the previous version](#upgrading-from-the-previous-version).
 
 Nix on macOS is always a *multi-user* (daemon) install. Run the official installer:
@@ -483,7 +483,7 @@ nix build          # patch guards will flag any workaround that no longer applie
 
 ## What changed in this version
 
-The previous version (tag `ratpac-3`) was stuck on RAT-PAC 3.x because tags
+The previous version (branch `ratpac-3`) was stuck on RAT-PAC 3.x because tags
 `4.0.0` and later declare `find_package(Geant4 11.4 REQUIRED)` while nixpkgs
 `nixos-25.11` shipped Geant4 **11.3.2**. nixpkgs `nixos-26.05` ships
 **11.4.1**, which clears that floor, so this version moves both at once.
