@@ -57,7 +57,7 @@ Download page: **<https://nixos.org/download/>**
 Nix on macOS is always a *multi-user* (daemon) install. Run the official installer:
 
 ```bash
-sh <(curl -L https://nixos.org/nix/install)
+curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh
 ```
 
 It will ask for your password (it creates a separate `/nix` APFS volume and a
@@ -66,7 +66,7 @@ It will ask for your password (it creates a separate `/nix` APFS volume and a
 ### Linux
 
 ```bash
-sh <(curl -L https://nixos.org/nix/install) --daemon
+curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
 ```
 
 ### Windows (WSL 2)
@@ -122,11 +122,11 @@ systemctl is-system-running    # "running" or "degraded" — either is fine
 **4. Install Nix** with the Linux command above, run from inside Ubuntu:
 
 ```bash
-sh <(curl -L https://nixos.org/nix/install) --daemon
+curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --daemon
 ```
 
 > If you can't enable systemd (locked-down machine, ancient WSL), the single-user
-> install works too: `sh <(curl -L https://nixos.org/nix/install) --no-daemon`.
+> install works too: `curl --proto '=https' --tlsv1.2 -L https://nixos.org/nix/install | sh -s -- --no-daemon`.
 > It puts the store under your user instead of a daemon, and everything in this
 > README still applies.
 
