@@ -62,7 +62,7 @@ t_repo() {
   sha=$(git -C "$NFR_REPO" rev-parse --short HEAD)
   [ -n "$(git -C "$NFR_REPO" status --porcelain -- flake.nix flake.lock)" ] && dirty=', flake.nix/flake.lock modified'
   git -C "$NFR_REPO" log -1 --format='%h %s (%cr)'
-  case "$branch" in main|unstable) ;; *) note "on '$branch' @ $sha; this suite expects 'main' or 'unstable'$dirty"; return "$WARN" ;; esac
+  [ "$branch" = main ] || { note "on '$branch' @ $sha; this suite expects 'main'$dirty"; return "$WARN"; }
   note "$branch @ $sha$dirty"
 }
 

@@ -84,7 +84,7 @@ and Windows alike. That XFAIL is expected; nothing needs fixing.
 ## What it checks
 
 **Preflight** (every platform): Nix is installed, flakes are on, the checkout
-is `main` or `unstable`. Then per platform:
+is `main`. Then per platform:
 
 - *macOS*: version, Nix system (`x86_64-darwin` fails: nixpkgs 26.05 marks
   `arrow-cpp` broken there and `plotly` needs it), whether there is a desktop
