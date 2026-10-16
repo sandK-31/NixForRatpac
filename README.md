@@ -8,22 +8,30 @@ nix develop
 ```
 
 No `apt`/`brew` packages to install, no manual CMake builds, no `LD_LIBRARY_PATH`
-archaeology. Works on macOS (Apple Silicon and Intel) and Linux, and on Windows
-through WSL 2 — see [Step 1](#windows-wsl-2).
+archaeology. Works on Apple Silicon Macs and Linux, and on Windows through
+WSL 2 — see [Step 1](#windows-wsl-2). Intel Macs need the previous version
+(below).
 
-> ### 🚧 You are on the `unstable` branch
+> ### Upgrading from the previous version
 >
-> This branch moves the environment to nixpkgs `nixos-26.05` (Geant4 11.4.1,
-> ROOT 6.40.00) and RAT-PAC **4.4.0**. It builds and runs a 50-event electron
-> macro on aarch64-darwin, but it has **not** been tested on Linux, and the
-> Geant4 Qt viewer now runs on Qt6 rather than Qt5 — see
-> [What changed on this branch](#what-changed-on-this-branch).
+> As of 2026-10-16 this environment is on nixpkgs `nixos-26.05` (Geant4 11.4.1,
+> ROOT 6.40.00) and RAT-PAC **4.4.0**, up from RAT-PAC 3.x, Geant4 11.3.2 and
+> ROOT 6.36.04. The full test suite passes on macOS, Linux and Windows (WSL).
+> If you already use this repo, after `git pull`:
 >
-> RAT-PAC 4.4.0 removed `libRATEvent`. If your experiment's `CMakeLists.txt`
-> links `RATEvent`, drop it and link `RATPAC` alone — see
-> [RAT-PAC 4.3.0 → 4.4.0](#rat-pac-430--440-libratevent-is-gone).
+> - **The first `nix develop` rebuilds the environment**, so budget time for it.
+> - **`RATEvent` is gone.** If your experiment's `CMakeLists.txt` links
+>   `RATEvent`, drop it and link `RATPAC` alone — see
+>   [RAT-PAC 4.3.0 → 4.4.0](#rat-pac-430--440-libratevent-is-gone).
+> - **Optical timing can differ from earlier runs** (RAT-PAC #447). Check before
+>   mixing new results with old ones.
+> - **Intel Macs are not supported:** nixpkgs 26.05 marks `arrow-cpp` broken on
+>   `x86_64-darwin`, and `plotly` needs it, so the flake does not evaluate there.
 >
-> For the environment the group is currently using, check out `main`.
+> The previous environment is kept as the tag `ratpac-3`. To stay on it, run
+> `git checkout ratpac-3` in your clone, or
+> `nix develop github:sandK-31/NixForRatpac/ratpac-3` without one. See
+> [What changed in this version](#what-changed-in-this-version) for details.
 
 > Originally written by [Ethan W. Todd](https://github.com/ewtodd), adapted by
 > [Sander Katz](https://github.com/sandK-31).
@@ -466,12 +474,12 @@ nix flake update ratpac-src
 nix build          # patch guards will flag any workaround that no longer applies
 ```
 
-## What changed on this branch
+## What changed in this version
 
-`main` was stuck on RAT-PAC 3.x because tags `4.0.0` and later declare
-`find_package(Geant4 11.4 REQUIRED)` while nixpkgs `nixos-25.11` shipped Geant4
-**11.3.2**. nixpkgs `nixos-26.05` ships **11.4.1**, which clears that floor, so
-this branch moves both at once.
+The previous version (tag `ratpac-3`) was stuck on RAT-PAC 3.x because tags
+`4.0.0` and later declare `find_package(Geant4 11.4 REQUIRED)` while nixpkgs
+`nixos-25.11` shipped Geant4 **11.3.2**. nixpkgs `nixos-26.05` ships
+**11.4.1**, which clears that floor, so this version moves both at once.
 
 Geant4 was the easy part. Three other things changed.
 
@@ -492,22 +500,22 @@ So `pkgs.qt5.qtbase` in RAT-PAC's `buildInputs` became `pkgs.qt6.qtbase`. The
 and `dev`), so `QT_PLUGIN_PATH` is built from the package itself, and the plugin
 prefix moved to `lib/qt-6/plugins`.
 
-**This is the part most likely to still be wrong.** The first test-suite run on
+**This is the part that broke on Linux.** The first test-suite run on
 WSL (2026-10-14) found that Nix-built Qt had no OpenGL driver at all off NixOS:
 Qt printed `EGL not available`, the OGLSQt viewer drew nothing, and the `rat -g`
 window never appeared. `G4VIS_DEFAULT_DRIVER=TSG_QT_ZB`, a software renderer, had
 been hiding this for standalone Geant4 apps; RAT registers no such driver. The
-shell now points OpenGL at nixpkgs' Mesa on Linux other than NixOS. That fix has
-not yet been run on Linux or WSL.
+shell now points OpenGL at nixpkgs' Mesa on Linux other than NixOS, and with
+that the viewer tests pass on Linux and WSL.
 
 ### RAT-PAC 4.3.0 → 4.4.0: libRATEvent is gone
 
-This branch first pinned 4.3.0, which does not link on macOS. `libRATEvent`, a
+The upgrade first pinned 4.3.0, which does not link on macOS. `libRATEvent`, a
 slimmed-down sibling of `libRATPAC`, had four undefined symbols
 (`RAT::PhysicsList`, `RAT::DetectorConstruction`, and `RAT::TransitTimeCalculator`'s
 constructor and destructor) whose definitions live only in `libRATPAC`. Linux's
 linker leaves undefined symbols in a shared library to load time; Apple's
-refuses them. The branch got past it with a Darwin-only
+refuses them. The upgrade got past it with a Darwin-only
 `-Wl,-undefined,dynamic_lookup` in `cmakeFlags`.
 
 Upstream hit the same failure on a Mac and fixed it in 4.4.0: the CMake
@@ -549,8 +557,8 @@ rewrite correct code:
 
 ### CRY added
 
-Unlike the three changes above, this one isn't forced by the move: `main`
-never had CRY either. RAT-PAC builds its `cry` vertex generator only if
+Unlike the three changes above, this one isn't forced by the move: the
+previous version never had CRY either. RAT-PAC builds its `cry` vertex generator only if
 `CRYLIB` is set when CMake configures, and nixpkgs has no CRY package, so
 `flake.nix` now builds CRY 1.7 from the LLNL tarball and sets `CRYLIB`,
 `CRYINCLUDE` and `CRYDATA` in both the RAT-PAC build and the dev shells, the
@@ -624,7 +632,7 @@ one-entry tables like these correctly under Geant4 11.4 is what #447 fixed:
 AddProperty warning. A material property vector must have more than one value.
 ```
 
-One pre-existing startup warning is unchanged from `main` and is not a
+One pre-existing startup warning is unchanged from the previous version and is not a
 regression:
 
 ```

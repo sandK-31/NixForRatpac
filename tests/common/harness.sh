@@ -2,7 +2,7 @@
 # which sets NFR_OS and defines os_preflight and gui_available, then calls
 # main "$@". Runs outside Nix: under macOS that means bash 3.2.
 
-# What the unstable branch pins. Bump these together with flake.nix.
+# What the flake pins. Bump these together with flake.nix.
 NFR_EXPECT_RAT=4.4.0
 NFR_EXPECT_G4=11.4.1
 NFR_EXPECT_ROOT=6.40.00
@@ -62,8 +62,8 @@ t_repo() {
   sha=$(git -C "$NFR_REPO" rev-parse --short HEAD)
   [ -n "$(git -C "$NFR_REPO" status --porcelain -- flake.nix flake.lock)" ] && dirty=', flake.nix/flake.lock modified'
   git -C "$NFR_REPO" log -1 --format='%h %s (%cr)'
-  [ "$branch" = unstable ] || { note "on '$branch' @ $sha; this suite expects 'unstable'$dirty"; return "$WARN"; }
-  note "unstable @ $sha$dirty"
+  case "$branch" in main|unstable) ;; *) note "on '$branch' @ $sha; this suite expects 'main' or 'unstable'$dirty"; return "$WARN" ;; esac
+  note "$branch @ $sha$dirty"
 }
 
 t_flake_eval() {
